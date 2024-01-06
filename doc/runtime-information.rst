@@ -16,7 +16,8 @@ check "are we bundled?"::
 
 When a bundled app starts up, the bootloader sets the ``sys.frozen``
 attribute and stores the absolute path to the bundle folder in
-``sys._MEIPASS``. For a one-folder bundle, this is the path to that folder. For
+``sys._MEIPASS``. For a one-folder bundle, this is the path to the
+``_internal`` folder within the bundle. For
 a one-file bundle, this is the path to the temporary folder created by the
 bootloader (see :ref:`How the One-File Program Works`).
 
@@ -92,7 +93,7 @@ Placing data files at expected locations inside the bundle
 
 To place the data-files where your code expects them to be (i.e., relative
 to the main script or bundle directory), you can use the **dest** parameter
-of the :option:`--add-data=source:dest <--add-data>` command-line switches.
+of the :option:`--add-data="source:dest" <--add-data>` command-line switches.
 Assuming you normally
 use the following code in a file named ``my_script.py`` to locate a file
 ``file.dat`` in the same folder::
@@ -109,7 +110,7 @@ And ``my_script.py`` is **not** part of a package (not in a folder containing
 an ``__init_.py``), then ``__file__`` will be ``[app root]/my_script.pyc``
 meaning that if you put ``file.dat`` in the root of your package, using::
 
-    PyInstaller --add-data=/path/to/file.dat:.
+    PyInstaller --add-data="/path/to/file.dat:."
 
 It will be found correctly at runtime without changing ``my_script.py``.
 
@@ -119,7 +120,7 @@ If ``__file__`` is checked from inside a package or library (say
 ``my_library.data``) then ``__file__`` will be
 ``[app root]/my_library/data.pyc`` and :option:`--add-data` should mirror that::
 
-    PyInstaller --add-data=/path/to/my_library/file.dat:./my_library
+    PyInstaller --add-data="/path/to/my_library/file.dat:./my_library"
 
 However, in this case it is much easier to switch to :ref:`the spec file
 <Using Spec Files>` and use the

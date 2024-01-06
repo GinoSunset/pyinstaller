@@ -44,7 +44,7 @@ then ask for technical help.
 
 By setting the environment variable ``PYINSTALLER_COMPILE_BOOTLOADER``
 the pip_ setup will attempt to build the bootloader for your platform, even
-if it is already present.
+if it is already present. Doing so would execute the command ``python ./waf configure all`` upon installation. You can also pass additional arguments to the build process by setting the ``PYINSTALLER_BOOTLOADER_WAF_ARGS`` environment variable.
 
 Supported platforms are
 
@@ -87,28 +87,6 @@ Now you can build the bootloader as shown above.
 
 Alternatively you may want to use the `linux64` build-guest
 provided by the Vagrantfile (see below).
-
-
-Building Linux Standard Base (LSB) compliant binaries (optional)
------------------------------------------------------------------
-
-By default, the bootloaders on GNU/Linux are ”normal“, non-LSB binaries, which
-should be fine for all GNU/Linux distributions.
-
-If for some reason you want to build Linux Standard Base (LSB) compliant
-binaries [#]_, you can do so by specifying ``--lsb`` on the waf command line,
-as follows::
-
-       python ./waf distclean all --lsb
-
-LSB version 4.0 is required for successfully building of bootloader. Please
-refer to ``python ./waf --help`` for further options related to LSB building.
-
-.. [#] Linux Standard Base (LSB) is a set of open standards that should
-       increase compatibility among GNU/Linux distributions. Unfortunately it is
-       not widely adopted and both Debian and Ubuntu dropped support for LSB
-       in autumn 2015. Thus PyInstaller bootloaders are no longer provided
-       as LSB binary.
 
 
 Cross Building for Different Architectures
@@ -155,12 +133,12 @@ Build a thin, native executable::
 Build a thin, ``x86_64`` executable (regardless of the build machine's
 architecture)::
 
-    CC='clang -arch=x86_64' python waf --no-universal2  all
+    CC='clang -arch x86_64' python waf --no-universal2  all
 
 Build a thin, ``arm64`` executable (regardless of the build machine's
 architecture)::
 
-    CC='clang -arch=arm64' python waf --no-universal2 all
+    CC='clang -arch arm64' python waf --no-universal2 all
 
 By default, the build script targets macOS 10.13, which can be overridden by
 exporting the MACOSX_DEPLOYMENT_TARGET environment variable.

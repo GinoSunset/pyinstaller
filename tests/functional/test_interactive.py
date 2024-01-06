@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-# Copyright (c) 2005-2022, PyInstaller Development Team.
+# Copyright (c) 2005-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -33,14 +33,17 @@ def test_ipython(pyi_builder):
 
 # Splash screen is not supported on macOS due to incompatible design.
 @pytest.mark.skipif(is_darwin, reason="Splash screen is not supported on macOS.")
-@pytest.mark.parametrize("mode", ['onedir', 'onefile'])
+@pytest.mark.parametrize("build_mode", ['onedir', 'onefile'])
+@pytest.mark.parametrize("with_tkinter", [False, True], ids=['notkinter', 'tkinter'])
 @pytest.mark.xfail(is_musl, reason="musl + tkinter is known to cause mysterious segfaults.")
-def test_pyi_splash(pyi_builder_spec, capfd, monkeypatch, mode):
-    if mode == 'onefile':
-        monkeypatch.setenv('_TEST_SPLASH_ONEFILE', 'onefile')
+def test_pyi_splash(pyi_builder_spec, capfd, monkeypatch, build_mode, with_tkinter):
+    if build_mode == 'onefile':
+        monkeypatch.setenv('_TEST_SPLASH_BUILD_MODE', 'onefile')
+    if with_tkinter:
+        monkeypatch.setenv('_TEST_SPLASH_WITH_TKINTER', '1')
 
     pyi_builder_spec.test_spec('spec_with_splash.spec', runtime=_RUNTIME)
 
     out, err = capfd.readouterr()
     assert 'SPLASH: Splash screen started' in err, \
-        "Cannot find log entry indicating start of splash screen in:\n{}".format(err)
+        f"Cannot find log entry indicating start of splash screen in:\n{err}"

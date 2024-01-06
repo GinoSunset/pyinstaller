@@ -1,6 +1,6 @@
 /*
  * ****************************************************************************
- * Copyright (c) 2013-2022, PyInstaller Development Team.
+ * Copyright (c) 2013-2023, PyInstaller Development Team.
  *
  * Distributed under the terms of the GNU General Public License (version 2
  * or later) with exception for distributing the bootloader.
@@ -33,6 +33,7 @@
 #define ARCHIVE_ITEM_DATA             'x'  /* data */
 #define ARCHIVE_ITEM_RUNTIME_OPTION   'o'  /* runtime option */
 #define ARCHIVE_ITEM_SPLASH           'l'  /* splash resources */
+#define ARCHIVE_ITEM_SYMLINK          'n'  /* symbolic link */
 
 /* TOC entry for a CArchive */
 typedef struct _toc {
@@ -58,10 +59,9 @@ typedef struct _cookie {
 } COOKIE;
 
 typedef struct _archive_status {
-    FILE * fp;
     uint64_t pkgstart;
-    TOC *  tocbuff;
-    TOC *  tocend;
+    TOC *tocbuff;
+    const TOC *tocend;
     COOKIE cookie;
     /*
      * On Windows:
@@ -85,6 +85,10 @@ typedef struct _archive_status {
      * is used for example to set sys.path, sys.prefix, and sys._MEIPASS.
      */
     char mainpath[PATH_MAX];
+    /* Flag indicating that contents of the archive need to be extracted
+     * to the temporary directory (onefile mode).
+     */
+    bool needs_to_extract;
     /*
      * Flag if temporary directory is available. This usually means running
      * executable in onefile mode. Bootloader has to behave differently
@@ -99,23 +103,22 @@ typedef struct _archive_status {
     bool is_pylib_loaded;
     /*
      * Cached command-line arguments.
+     * On Windows, argv contains UTF-8 encoded version of __wargv. On
+     * Linux and macOS, it contains argv as received by main(),
      */
-    int    argc;      /* Count of command-line arguments. */
-    char **argv;      /*
-                       * On Windows, UTF-8 encoded form of __wargv.
-                       * On OS X/Linux, as received in main()
-                       */
+    int argc;
+    char **argv;
 } ARCHIVE_STATUS;
 
-TOC *pyi_arch_increment_toc_ptr(const ARCHIVE_STATUS *status, const TOC* ptoc);
+const TOC *pyi_arch_increment_toc_ptr(const ARCHIVE_STATUS *status, const TOC *ptoc);
 
-unsigned char *pyi_arch_extract(ARCHIVE_STATUS *status, TOC *ptoc);
-int pyi_arch_extract2fs(ARCHIVE_STATUS *status, TOC *ptoc);
+unsigned char *pyi_arch_extract(const ARCHIVE_STATUS *status, const TOC *ptoc);
+int pyi_arch_extract2fs(const ARCHIVE_STATUS *status, const TOC *ptoc);
 
 /**
  * Helpers for embedders
  */
-int pyi_arch_get_pyversion(ARCHIVE_STATUS *status);
+int pyi_arch_get_pyversion(const ARCHIVE_STATUS *status);
 extern int pyvers;
 
 /**
@@ -137,12 +140,12 @@ void pyi_arch_status_free(ARCHIVE_STATUS *status);
  *
  * @return true on success, false otherwise.
  */
-bool pyi_arch_setup(ARCHIVE_STATUS *status, char const * archive_path, char const * executable_path);
+bool pyi_arch_setup(ARCHIVE_STATUS *status, char const *archive_path, char const *executable_path);
 
-TOC *getFirstTocEntry(ARCHIVE_STATUS *status);
-TOC *getNextTocEntry(ARCHIVE_STATUS *status, TOC *entry);
+/* Temporary directory creation for builds that need to unpack themselvs */
+int pyi_arch_create_tempdir(ARCHIVE_STATUS *status);
 
-char * pyi_arch_get_option(const ARCHIVE_STATUS * status, char * optname);
-TOC *pyi_arch_find_by_name(ARCHIVE_STATUS *status, const char *name);
+const char *pyi_arch_get_option(const ARCHIVE_STATUS *status, const char *optname);
+const TOC *pyi_arch_find_by_name(const ARCHIVE_STATUS *status, const char *name);
 
 #endif  /* PYI_ARCHIVE_H */

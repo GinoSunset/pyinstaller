@@ -1,6 +1,6 @@
 /*
  * ****************************************************************************
- * Copyright (c) 2013-2022, PyInstaller Development Team.
+ * Copyright (c) 2013-2023, PyInstaller Development Team.
  *
  * Distributed under the terms of the GNU General Public License (version 2
  * or later) with exception for distributing the bootloader.
@@ -49,10 +49,6 @@
 /* Text length of MessageBox(). */
 #define MBTXTLEN 1024
 
-/* Locale is saved at the start of main(), and restored immediately before running
- * scripts in pyi_launch_run_scripts
- */
-char *saved_locale;
 
 /*
  * On Windows and with windowed mode (no console) show error messages

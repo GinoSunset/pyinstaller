@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-# Copyright (c) 2013-2022, PyInstaller Development Team.
+# Copyright (c) 2013-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -69,7 +69,7 @@ def _recursive_scan_code_objects_for_mpl_use(co):
             # matplotlib.use(backend) or matplotlib.use(backend, force)
             # We support only literal arguments. Similarly, kwargs are
             # not supported.
-            if not len(args) in {1, 2} or not isinstance(args[0], str):
+            if len(args) not in {1, 2} or not isinstance(args[0], str):
                 continue
             if name in mpl_use_names:
                 backends.append(args[0])
@@ -98,9 +98,23 @@ def _autodetect_used_backends(hook_api):
     mpl_code_objs = modulegraph.get_code_using("matplotlib")
     used_backends = []
     for name, co in mpl_code_objs.items():
-        used_backends += _recursive_scan_code_objects_for_mpl_use(co)
+        co_backends = _recursive_scan_code_objects_for_mpl_use(co)
+        if co_backends:
+            logger.info(
+                "Discovered Matplotlib backend(s) via `matplotlib.use()` call in module %r: %r", name, co_backends
+            )
+            used_backends += co_backends
+
+    # Deduplicate and sort the list of used backends before displaying it.
+    used_backends = sorted(set(used_backends))
 
     if used_backends:
+        HOOK_CONFIG_DOCS = 'https://pyinstaller.org/en/stable/hooks-config.html#matplotlib-hooks'
+        logger.info(
+            "The following Matplotlib backends were discovered by scanning for `matplotlib.use()` calls: %r. If your "
+            "backend of choice is not in this list, either add a `matplotlib.use()` call to your code, or configure "
+            "the backend collection via hook options (see: %s).", used_backends, HOOK_CONFIG_DOCS
+        )
         return used_backends
 
     # Determine the default matplotlib backend.
@@ -199,6 +213,9 @@ def hook(hook_api):
         else:
             assert isinstance(backends_method, list), "User-provided backend name(s) must be either a string or a list!"
             backend_names = backends_method
+
+    # Deduplicate and sort the list of selected backends before displaying it.
+    backend_names = sorted(set(backend_names))
 
     logger.info("Selected matplotlib backends: %r", backend_names)
 

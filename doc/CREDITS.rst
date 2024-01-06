@@ -5,6 +5,119 @@ Thanks goes to all the kind PyInstaller contributors who have contributed
 new code, bug reports, fixes, comments and ideas. A brief list follows,
 please let us know if your name is omitted by accident:
 
+Contributions to PyInstaller 6.3.0
+----------------------------------
+
+* Rok Mandeljc
+* Dan Yeaw
+
+Contributions to PyInstaller 6.2.0
+----------------------------------
+
+* Rok Mandeljc
+* David Baumgold
+
+Contributions to PyInstaller 6.1.0
+----------------------------------
+
+* Rok Mandeljc
+* Sebastian Thomschke
+
+Contributions to PyInstaller 6.0.0
+----------------------------------
+
+* Rok Mandeljc
+* Brénainn Woodsend
+* Benedikt Würkner
+* Blank
+* Brandon
+* James Gerity
+* Lorenzo Villani
+* axoroll7
+* byehack
+* coolcatco888
+* gentlegiantJGC
+
+Contributions to PyInstaller 5.13.2
+-----------------------------------
+
+* Rok Mandeljc
+
+Contributions to PyInstaller 5.13.1
+-----------------------------------
+
+* Rok Mandeljc
+* Brénainn Woodsend
+* James Gerity
+* Lorenzo Villani
+* coolcatco888
+* gentlegiantJGC
+
+Contributions to PyInstaller 5.13.0
+-----------------------------------
+
+* Dan Yeaw
+* Rok Mandeljc
+* Brénainn Woodsend
+* Fabian Dröge
+* Levin Ma
+
+Contributions to PyInstaller 5.12.0
+-----------------------------------
+
+* Rok Mandeljc
+* Brénainn Woodsend
+* Joshua Bronson
+* caption
+
+Contributions to PyInstaller 5.11.0
+-----------------------------------
+
+* Rok Mandeljc
+* cat (also known as *0xb8*)
+* eduardomotta-emottasistemas
+
+Contributions to PyInstaller 5.10.1
+-----------------------------------
+
+* Rok Mandeljc
+* Christian Clauss
+
+Contributions to PyInstaller 5.10.0
+-----------------------------------
+
+* Rok Mandeljc
+* Michael Shigorin
+* V. Armando Solé
+
+Contributions to PyInstaller 5.9.0
+----------------------------------
+
+* Brénainn Woodsend
+* Hugo van Kemenade
+* Rok Mandeljc
+* Ievgen Popovych
+
+Contributions to PyInstaller 5.8.0
+----------------------------------
+
+* Rok Mandeljc
+* Brénainn Woodsend
+* Arjan Molenaar
+* Breeze
+* Ievgen Popovych
+* João Vitor
+* bersbersbers
+
+Contributions to PyInstaller 5.7.0
+----------------------------------
+
+* Rok Mandeljc
+* Brénainn Woodsend
+* Dan Yeaw
+* Rumbelows
+* Shoshana Berleant
+
 Contributions to PyInstaller 5.6.2
 ----------------------------------
 

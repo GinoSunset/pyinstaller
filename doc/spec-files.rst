@@ -58,7 +58,6 @@ Only the following command-line options have an effect when building from a spec
 * :option:`--distpath`
 * :option:`--workpath`
 * :option:`--noconfirm`
-* :option:`--ascii`
 * :option:`--clean`
 * :option:`--log-level`
 
@@ -73,7 +72,6 @@ the ``pyinstaller`` command executes the spec file as code.
 Your bundled application is created by the execution of the spec file.
 The following is a shortened example of a spec file for a minimal, one-folder app::
 
-    block_cipher = None
     a = Analysis(['minimal.py'],
              pathex=['/Developer/PItests/minimal'],
              binaries=None,
@@ -81,10 +79,8 @@ The following is a shortened example of a spec file for a minimal, one-folder ap
              hiddenimports=[],
              hookspath=None,
              runtime_hooks=None,
-             excludes=None,
-             cipher=block_cipher)
-    pyz = PYZ(a.pure, a.zipped_data,
-             cipher=block_cipher)
+             excludes=None)
+    pyz = PYZ(a.pure)
     exe = EXE(pyz,... )
     coll = COLLECT(...)
 
@@ -166,11 +162,9 @@ you could modify the spec file as follows::
              ...
              )
 
-And the command line equivalent (see
-:ref:`What To Bundle, Where To Search`
-for platform-specific details)::
+And the command line equivalent::
 
-    pyinstaller --add-data 'src/README.txt:.' myscript.py
+    pyinstaller --add-data "src/README.txt:." myscript.py
 
 You have made the ``datas=`` argument a one-item list.
 The item is a tuple in which the first string says the existing file
@@ -299,11 +293,9 @@ You could add it to the bundle this way::
              binaries=[ ( '/usr/lib/libiodbc.2.dylib', '.' ) ],
              ...
 
-Or via the command line (again, see
-:ref:`What To Bundle, Where To Search`
-for platform-specific details)::
+Or via the command line::
 
-    pyinstaller --add-binary '/usr/lib/libiodbc.2.dylib:.' myscript.py
+    pyinstaller --add-binary "/usr/lib/libiodbc.2.dylib:." myscript.py
 
 If you wish to store ``libiodbc.2.dylib`` on a specific folder inside the bundle,
 for example ``vendor``, then you could specify it, using the second element of the tuple::
@@ -324,48 +316,102 @@ files to the bundle that may be useful for special cases.
 See :ref:`The TOC and Tree Classes` below.
 
 
-.. _giving run-time python options:
+.. _specifying python interpreter options:
 
-Giving Run-time Python Options
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Specifying Python Interpreter Options
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can pass command-line options to the Python interpreter.
-The interpreter takes a number of command-line options but only the
-following are supported for a bundled app:
+PyInstaller-frozen application runs the application code in isolated,
+embedded Python interpreter. Therefore, **the typical means of passing
+options to Python interpreter do not apply**, including:
 
-* ``v`` to write a message to stdout each time a module is initialized.
+* `environment variables <https://docs.python.org/3/using/cmdline.html#environment-variables>`_
+  (such as `PYTHONUTF8` and `PYTHONHASHSEED`) - because the frozen
+  application is supposed to be isolated from python environment that
+  might be present on the target system
 
-* ``u`` for unbuffered stdio.
+* `command-line arguments <https://docs.python.org/3/using/cmdline.html#miscellaneous-options>`_
+  (such as `-v` and `-O`) -  because command-line arguments are reserved
+  for application.
 
-* ``W`` and an option to change warning behavior: ``W ignore`` or
-  ``W once`` or ``W error``.
+Instead, PyInstaller offers an option to specify permanent run-time
+options for the application's Python interpreter via its own ``OPTIONS``
+mechanism. To pass run-time options, create a list of three-element
+tuples: `('option string', None, 'OPTION')`, and pass it as an additional
+argument to `EXE` before the keyword arguments. The first element of the
+option tuple is the option string (see below for valid options), the
+second is always `None`, and the third is always `'OPTION'`.
 
-To pass one or more of these options,
-create a list of tuples, one for each option, and pass the list as
-an additional argument to the EXE call.
-Each tuple has three elements:
+An example spec file, modified to specify two run-time options::
 
-* The option as a string, for example ``v`` or ``W ignore``.
+    options = [
+        ('v', None, 'OPTION'),
+        ('W ignore', None, 'OPTION'),
+    ]
 
-* None
-
-* The string ``OPTION``
-
-For example modify the spec file this way::
-
-    options = [ ('v', None, 'OPTION'), ('W ignore', None, 'OPTION') ]
-    a = Analysis( ...
-                )
+    a = Analysis(
+        ...
+    )
     ...
-    exe = EXE(pyz,
-          a.scripts,
-          options,   <--- added line
-          exclude_binaries=...
-          )
+    exe = EXE(
+        pyz,
+        a.scripts,
+        options,  # <-- the options list, passed to EXE
+        exclude_binaries=...
+        ...
+    )
 
-.. Note:: The unbuffered stdio mode (the ``u`` option) enables unbuffered
-   binary layer of ``stdout`` and ``stderr`` streams on all supported Python
-   versions. The unbuffered text layer requires Python 3.7 or later.
+The following options are supported by this mechanism:
+
+* ``'v'`` or ``'verbose'``: increment the value of ``sys.flags.verbose``,
+  which causes messages to be written to stdout each time a module is
+  initialized. This option is equivalent to Python's ``-v`` command-line
+  option. It is automatically enabled when :ref:`verbose imports
+  <getting python's verbose imports>` are enabled via PyInstaller's own
+  ˙˙--debug imports`` option.
+
+* ``'u'`` or ``'unbuffered'``: enable unbuffered stdout and stderr. Equivalent
+  to Python's ``-u`` command-line option.
+
+* ``'O'`` or ``'optimize'``: increment the value of ``sys.flags.optimize``.
+  Equivalent to Python's ``-O`` command-line option.
+
+* ``'W <arg>'``: a pass-through for `Python's W-options
+  <https://docs.python.org/3/using/cmdline.html#cmdoption-W>`_ that
+  control warning messages.
+
+* ``'X <arg>'``: a pass-through for `Python's X-options
+  <https://docs.python.org/3/using/cmdline.html#cmdoption-X>`_. The
+  ``utf8`` and ``dev`` X-options, which control UTF-8 mode and developer
+  mode, are explicitly parsed by PyInstaller's bootloader and used during
+  interpreter pre-initialization; the rest of X-options are just passed
+  on to the interpreter configuration.
+
+* ``'hash_seed=<value>'``: an option to set Python's hash seed within the
+  frozen application to a fixed value. Equivalent to ``PYTHONHASHSEED``
+  environment variable. At the time of writing, this does not exist as
+  an X-option, so it is implemented as a custom option.
+
+Further examples to illustrate the syntax::
+
+    options = [
+        # Warning control
+        ('W ignore', None, 'OPTION'),  # disable all warnings
+        ('W ignore::DeprecationWarning', None, 'OPTION')  # disable deprecation warnings
+
+        # UTF-8 mode; unless explicitly enabled/disabled, it is auto enabled based on locale
+        ('X utf8', None, 'OPTION),  # force UTF-8 mode on
+        ('X utf8=1', None, 'OPTION),  # force UTF-8 mode on
+        ('X utf8=0', None, 'OPTION),  # force UTF-8 mode off
+
+        # Developer mode; disabled by default
+        ('X dev', None, 'OPTION),  # enable dev mode
+        ('X dev=1', None, 'OPTION),  # enable dev mode
+
+        # Hash seed
+        ('hash_seed=0', None, 'OPTION'),  # disable hash randomization; sys.flags.hash_randomization=0
+        ('hash_seed=123', None, 'OPTION'),  # hash randomization with fixed seed value
+    ]
 
 
 .. _spec file options for a macOS bundle:
@@ -374,8 +420,7 @@ Spec File Options for a macOS Bundle
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 When you build a windowed macOS app
-(that is, running in macOS, you specify the :option:`--onefile`
-:option:`--windowed` options),
+(that is, running under macOS, you specify the :option:`--windowed` option),
 the spec file contains an additional statement to
 create the macOS application bundle, or app folder::
 
@@ -541,6 +586,16 @@ of code and libraries.
 You can use the multipackage feature to bundle a set of executable apps
 so that they share single copies of libraries.
 You can do this with either one-file or one-folder apps.
+
+Multipackaging with One-Folder Apps
+-----------------------------------
+
+For combining multiple one-folder applications, use a `shared COLLECT statement`_.
+This will collect the external resources for all of the one-folder apps into one directory.
+
+Multipackaging with One-File Apps
+---------------------------------
+
 Each dependency (a DLL, for example) is packaged only once, in one of the apps.
 Any other apps in the set that depend on that DLL
 have an "external reference" to it, telling them
@@ -552,9 +607,7 @@ All but one of the apps in the set will have slightly slower launch times.
 
 The external references between binaries include hard-coded
 paths to the output directory, and cannot be rearranged.
-If you use one-folder mode, you must
-install all the application folders within a single parent directory.
-If you use one-file mode, you must place all
+You must place all
 the related applications in the same directory
 when you install the application.
 
@@ -575,7 +628,7 @@ A custom spec file for a multipackage bundle contains one call to the MERGE func
 
       MERGE(*args)
 
-MERGE is used after the analysis phase and before ``EXE`` and ``COLLECT``.
+MERGE is used after the analysis phase and before ``EXE``.
 Its variable-length list of arguments consists of
 a list of tuples, each tuple having three elements:
 
@@ -634,27 +687,24 @@ so that the latter two refer to the first for common dependencies.
 Following this you can copy the ``PYZ``, ``EXE`` and ``COLLECT`` statements from
 the original three spec files,
 substituting the unique names of the Analysis objects
-where the original spec files have ``a.``, for example::
+where the original spec files have ``a.``
+Modify the EXE statements to pass in ``Analysis.dependencies``, in addition
+to all other arguments that are passed in the original EXE statements.
+For example::
 
     foo_pyz = PYZ(foo_a.pure)
-    foo_exe = EXE(foo_pyz, foo_a.scripts, ... etc.
-    foo_coll = COLLECT( foo_exe, foo_a.binaries, foo_a.datas... etc.
+    foo_exe = EXE(foo_pyz, foo_a.dependencies, foo_a.scripts, ... etc.
 
     bar_pyz = PYZ(bar_a.pure)
-    bar_exe = EXE(bar_pyz, bar_a.scripts, ... etc.
-    bar_coll = COLLECT( bar_exe, bar_a.binaries, bar_a.datas... etc.
+    bar_exe = EXE(bar_pyz, bar_a.dependencies, bar_a.scripts, ... etc.
 
-(If you are building one-file apps, there is no ``COLLECT`` step.)
 Save the combined spec file as ``foobarzap.spec`` and then build it::
 
-    pyi-build foobarzap.spec
+    pyinstaller foobarzap.spec
 
 The output in the :file:`dist` folder will be all three apps, but
-the apps :file:`dist/bar/bar` and :file:`dist/zap/zap` will refer to
-the contents of :file:`dist/foo/` for shared dependencies.
-
-There are several multipackage examples in the
-PyInstaller distribution folder under :file:`tests/functional/specs`.
+the apps :file:`dist/bar` and :file:`dist/zap` will refer to
+the contents of :file:`dist/foo` for shared dependencies.
 
 Remember that a spec file is executable Python.
 You can use all the Python facilities (``for`` and ``with``
@@ -712,3 +762,58 @@ Other globals contain information about the build environment:
  mode: rst
  ispell-local-dictionary: "american"
  End:
+
+
+.. _spec_parameters:
+
+Adding parameters to spec files
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Sometimes, you may wish to have different build modes (e.g. a *debug* build and
+a *production* build) from the same spec file. Any command line arguments to
+``pyinstaller`` given after a ``--`` separator will not be parsed by PyInstaller
+and will instead be forwarded to the spec file where you can implement your own
+argument parsing and handle the options accordingly. For example, the following
+spec file will create a onedir application with console enabled if invoked via
+``pyinstaller example.spec -- --debug`` or a onefile console-less application if
+invoked with just ``pyinstaller example.spec``. If you use an :mod:`argparse`
+based parser rather than rolling your own using :data:`sys.argv` then
+``pyinstaller example.spec -- --help`` will display your spec options.
+
+.. code-block:: python
+
+    # example.spec
+
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true")
+    options = parser.parse_args()
+
+    a = Analysis(
+        ['example.py'],
+    )
+    pyz = PYZ(a.pure)
+
+    if options.debug:
+        exe = EXE(
+            pyz,
+            a.scripts,
+            exclude_binaries=True,
+            name='example',
+        )
+        coll = COLLECT(
+            exe,
+            a.binaries,
+            a.datas,
+            name='example_debug',
+        )
+    else:
+        exe = EXE(
+            pyz,
+            a.scripts,
+            a.binaries,
+            a.datas,
+            name='example',
+            console=False,
+        )

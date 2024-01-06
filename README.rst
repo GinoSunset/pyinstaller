@@ -41,7 +41,7 @@ but is not tested against them as part of the continuous integration tests.
 Main Advantages
 ---------------
 
-- Works out-of-the-box with any Python version 3.7-3.11.
+- Works out-of-the-box with any Python version 3.8-3.12.
 - Fully multi-platform, and uses the OS support to load the dynamic libraries,
   thus ensuring full compatibility.
 - Correctly bundles the major Python packages such as numpy, PyQt5,
@@ -66,18 +66,13 @@ Requirements and Tested Platforms
 ---------------------------------
 
 - Python:
-    - 3.7-3.11. Note that Python 3.10.0 contains a bug making it unsupportable by
+    - 3.8-3.12. Note that Python 3.10.0 contains a bug making it unsupportable by
       PyInstaller. PyInstaller will also not work with beta releases of Python
-      3.12.
-    - tinyaes_ 1.0+ (only if using bytecode encryption). Instead of installing
-      tinyaes, ``pip install pyinstaller[encryption]`` instead.
-- Windows (32bit/64bit):
+      3.13.
+- Windows (32bit/64bit/ARM64):
     - PyInstaller should work on Windows 7 or newer, but we only officially support Windows 8+.
     - Support for Python installed from the Windows store without using virtual
       environments requires PyInstaller 4.4 or later.
-    - Note that Windows on ``arm64`` is not yet supported. If you have such a
-      device and want to help us add ``arm64`` support then please let us know on
-      our issue tracker.
 - Linux:
     - GNU libc based distributions on architectures ``x86_64``, ``aarch64``,
       ``i686``, ``ppc64le``, ``s390x``.
@@ -139,7 +134,7 @@ either ``gcc`` or ``clang``) and zlib's development headers already installed.
 Support
 -------
 
-- Official debugging guide: https://pyinstaller.org/en/v5.6.2/when-things-go-wrong.html
+- Official debugging guide: https://pyinstaller.org/en/v6.3.0/when-things-go-wrong.html
 - Assorted user contributed help topics: https://github.com/pyinstaller/pyinstaller/wiki
 - Web based Q&A forums: https://github.com/pyinstaller/pyinstaller/discussions
 - Email based Q&A forums: https://groups.google.com/g/pyinstaller
@@ -151,7 +146,5 @@ Changes in this Release
 You can find a detailed list of changes in this release
 in the `Changelog`_ section of the manual.
 
-
-.. _tinyaes: https://github.com/naufraghi/tinyaes-py
-.. _`manual`: https://pyinstaller.org/en/v5.6.2/
-.. _`Changelog`: https://pyinstaller.org/en/v5.6.2/CHANGES.html
+.. _`manual`: https://pyinstaller.org/en/v6.3.0/
+.. _`Changelog`: https://pyinstaller.org/en/v6.3.0/CHANGES.html

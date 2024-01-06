@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-# Copyright (c) 2005-2022, PyInstaller Development Team.
+# Copyright (c) 2005-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -393,7 +393,7 @@ def test_scan_code__basic(monkeypatch, use_ast):
 #-- SWIG packages - pyinstaller specific tests
 
 
-def test_swig_import_simple_BUGGY(tmpdir):
+def _test_swig_import_simple_common(tmpdir):
     libdir = tmpdir.join('lib')
     path = [str(libdir)]
     osgeo = libdir.join('pyi_test_osgeo')
@@ -420,13 +420,18 @@ def test_swig_import_simple_BUGGY(tmpdir):
     assert mg.find_node('pyi_test_osgeo._pyi_gdal').identifier == '_pyi_gdal'
     # Due the the buggy implementation, this node does not exist.
     assert mg.find_node('_pyi_gdal') is None
-    return mg  # for use in test_swig_import_simple_BUG
+    return mg  # for use in test_swig_import_simple
+
+
+def test_swig_import_simple_BUGGY(tmpdir):
+    # Test the currently implemented behavior of SWIG support.
+    _test_swig_import_simple_common(tmpdir)
 
 
 @xfail
 def test_swig_import_simple(tmpdir):
-    # Test the expected (but not implemented) behavior if SWIG support.
-    mg = test_swig_import_simple_BUGGY(tmpdir)
+    # Test the expected (but not implemented) behavior of SWIG support.
+    mg = _test_swig_import_simple_common(tmpdir)
     # Given the bug in modulegraph (see test_swig_import_simple_BUGGY) this is what would be the expected behavior.
     # TODO: When modulegraph is fixed, merge the two test-cases and correct test_swig_import_from_top_level
     # and siblings.
@@ -492,11 +497,8 @@ def test_swig_import_from_top_level_missing(tmpdir):
     mg.add_script(str(script))
     assert isinstance(mg.find_node('pyi_test_osgeo'), modulegraph.Package)
     assert isinstance(mg.find_node('pyi_test_osgeo.pyi_gdal'), modulegraph.SourceModule)
-    # BUG: Again, this is unecpected behaviour in modulegraph: While MissingModule('_pyi_gdal') is (arguably) removed
-    # when trying to import the SWIG C module, there is no MissingModule('pyi_test_osgeo.pyi_gdal') added, but again
-    # MissingModule('_pyi_gdal'). I still need to understand why.
-    assert mg.find_node('pyi_test_osgeo._pyi_gdal') is None
-    assert isinstance(mg.find_node('_pyi_gdal'), modulegraph.MissingModule)
+    assert isinstance(mg.find_node('pyi_test_osgeo._pyi_gdal'), modulegraph.MissingModule)
+    assert mg.find_node('_pyi_gdal') is None
 
 
 def test_swig_import_from_top_level_but_nested(tmpdir):

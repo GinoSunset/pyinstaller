@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-# Copyright (c) 2005-2022, PyInstaller Development Team.
+# Copyright (c) 2005-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -28,6 +28,9 @@ ELEMS2 = (
 )
 
 ELEMS3 = (('PIL.Image.py', '/usr/lib/python2.7/encodings/__init__.py', 'PYMODULE'),)
+
+# Ignore deprecation warnings for the TOC class
+pytestmark = pytest.mark.filterwarnings("ignore:TOC class is deprecated.")
 
 
 def test_init_empty():

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #-----------------------------------------------------------------------------
-# Copyright (c) 2005-2022, PyInstaller Development Team.
+# Copyright (c) 2005-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -157,38 +157,6 @@ def test_email(pyi_builder):
     )
 
 
-@importorskip('tinyaes')
-def test_feature_crypto(pyi_builder):
-    pyi_builder.test_source(
-        """
-        from pyimod00_crypto_key import key
-        from pyimod01_archive import CRYPT_BLOCK_SIZE
-
-        # Test against issue #1663: importing a package in the bootstrap
-        # phase should not interfere with subsequent imports.
-        import tinyaes
-
-        assert type(key) is str
-        # The test runner uses 'test_key' as key.
-        assert key == 'test_key'.zfill(CRYPT_BLOCK_SIZE)
-        """,
-        pyi_args=['--key=test_key']
-    )
-
-
-def test_feature_nocrypto(pyi_builder):
-    pyi_builder.test_source(
-        """
-        try:
-            import pyimod00_crypto_key
-
-            raise AssertionError('The pyimod00_crypto_key module must NOT be there if crypto is disabled.')
-        except ImportError:
-            pass
-        """
-    )
-
-
 def test_filename(pyi_builder):
     pyi_builder.test_script('pyi_filename.py')
 
@@ -208,7 +176,7 @@ def test_module__file__attribute(pyi_builder):
 def test_module_attributes(tmpdir, pyi_builder):
     # Create file in tmpdir with path to python executable and if it is running in debug mode.
     # Test script uses python interpreter to compare module attributes.
-    with open(os.path.join(tmpdir.strpath, 'python_exe.build'), 'w') as f:
+    with open(os.path.join(tmpdir.strpath, 'python_exe.build'), 'w', encoding='utf8') as f:
         f.write(sys.executable + "\n")
         f.write('debug=%s' % __debug__ + '\n')
         # On Windows we need to preserve system PATH for subprocesses in tests.
@@ -401,7 +369,7 @@ def test_stderr_encoding(tmpdir, pyi_builder):
     #             py.test has stdout encoding 'cp1252', which is an ANSI codepage. test fails as they do not match.
     # with -s:    py.test process has stdout encoding from windows terminal, which is an OEM codepage. spawned
     #             subprocess has the same encoding. test passes.
-    with open(os.path.join(tmpdir.strpath, 'stderr_encoding.build'), 'w') as f:
+    with open(os.path.join(tmpdir.strpath, 'stderr_encoding.build'), 'w', encoding='utf-8') as f:
         if sys.stderr.isatty():
             enc = str(sys.stderr.encoding)
         else:
@@ -413,7 +381,7 @@ def test_stderr_encoding(tmpdir, pyi_builder):
 
 
 def test_stdout_encoding(tmpdir, pyi_builder):
-    with open(os.path.join(tmpdir.strpath, 'stdout_encoding.build'), 'w') as f:
+    with open(os.path.join(tmpdir.strpath, 'stdout_encoding.build'), 'w', encoding='utf-8') as f:
         if sys.stdout.isatty():
             enc = str(sys.stdout.encoding)
         else:
@@ -662,18 +630,14 @@ def test_onefile_longpath(pyi_builder, tmpdir):
     # Create data file with secret
     _SECRET = 'LongDataPath'
     src_filename = tmpdir / 'data.txt'
-    with open(src_filename, 'w') as fp:
+    with open(src_filename, 'w', encoding='utf-8') as fp:
         fp.write(_SECRET)
     # Generate long target filename/path; eight equivalents of SHA256 strings plus data.txt should push just the
     # _MEIPASS-relative path beyond 260 characters...
     dst_filename = os.path.join(*[32 * chr(c) for c in range(ord('A'), ord('A') + 8)], 'data.txt')
     assert len(dst_filename) >= 260
     # Name for --add-data
-    if is_win:
-        add_data_name = src_filename + ';' + os.path.dirname(dst_filename)
-    else:
-        add_data_name = src_filename + ':' + os.path.dirname(dst_filename)
-
+    add_data_name = src_filename + ':' + os.path.dirname(dst_filename)
     pyi_builder.test_source(
         """
         import sys
@@ -690,16 +654,15 @@ def test_onefile_longpath(pyi_builder, tmpdir):
 
 @pytest.mark.win32
 @pytest.mark.parametrize("icon", ["icon_default", "icon_none", "icon_given"])
-def test_onefile_has_manifest(pyi_builder, icon):
+def test_application_executable_has_manifest(pyi_builder, icon):
     """
-    Verify that onefile builds on Windows end up having manifest embedded. See issue #5624.
+    Verify that builds on Windows end up having manifest embedded. See issue #5624.
+    This test was initially limited only to onefile builds, but as we now always embed manifest into executable, it
+    now covers both builds.
     """
     from PyInstaller.utils.win32 import winmanifest
     from PyInstaller import PACKAGEPATH
 
-    # The test is relevant only for onefile builds
-    if pyi_builder._mode != 'onefile':
-        pytest.skip('The test is relevant only to onefile builds.')
     # Icon type
     if icon == 'icon_default':
         # Default; no --icon argument
@@ -718,8 +681,8 @@ def test_onefile_has_manifest(pyi_builder, icon):
     exes = pyi_builder._find_executables('test_source')
     assert exes
     for exe in exes:
-        res = winmanifest.GetManifestResources(exe)
-        assert res, "No manifest resources found!"
+        manifest = winmanifest.read_manifest_from_executable(exe)
+        assert manifest, "No manifest resources found!"
 
 
 @pytest.mark.parametrize("append_pkg", [True, False], ids=["embedded", "sideload"])
@@ -796,10 +759,71 @@ def test_package_entry_point_name_collision(pyi_builder):
     ]
 
     # Include a verification that unfrozen Python does still work.
-    p = subprocess.run([sys.executable, str(script)], stdout=subprocess.PIPE, universal_newlines=True)
+    p = subprocess.run([sys.executable, str(script)], stdout=subprocess.PIPE, encoding="utf-8")
     assert re.findall("Running (.*) as (.*)", p.stdout) == expected
 
     pyi_builder.test_script(str(script))
     exe, = pyi_builder._find_executables("matching_name")
-    p = subprocess.run([exe], stdout=subprocess.PIPE, universal_newlines=True)
+    p = subprocess.run([exe], stdout=subprocess.PIPE, encoding="utf-8")
     assert re.findall("Running (.*) as (.*)", p.stdout) == expected
+
+
+def test_contents_directory(pyi_builder):
+    """
+    Test the --contents-directory option, including changing it without --clean.
+    """
+    if pyi_builder._mode != 'onedir':
+        pytest.skip('--contents-directory does not affect onefile builds.')
+
+    pyi_builder.test_source("", pyi_args=["--contents-directory=foo"])
+    exe, = pyi_builder._find_executables("test_source")
+    bundle = Path(exe).parent
+    assert (bundle / "foo").is_dir()
+
+    pyi_builder.test_source("", pyi_args=["--contents-directory=é³þ³źć🚀", "--noconfirm"])
+    assert not (bundle / "foo").exists()
+    assert (bundle / "é³þ³źć🚀").is_dir()
+
+    with pytest.raises(SystemExit, match='Invalid value "\\.\\." passed'):
+        pyi_builder.test_source("", pyi_args=["--contents-directory=..", "--noconfirm"])
+
+
+def test_legacy_onedir_layout(pyi_builder):
+    """
+    Test the --contents-directory=., which re-enables the legacy onedir layout.
+    """
+    if pyi_builder._mode != 'onedir':
+        pytest.skip('--contents-directory does not affect onefile builds.')
+
+    pyi_builder.test_source(
+        """
+        import sys
+        import os
+        assert sys._MEIPASS == os.path.dirname(sys.executable)
+        assert os.path.dirname(__file__) == os.path.dirname(sys.executable)
+        """,
+        pyi_args=["--contents-directory", "."]
+    )
+
+
+def test_spec_options(pyi_builder, SPEC_DIR, capsys):
+    if pyi_builder._mode != 'onedir':
+        pytest.skip('spec file is onedir mode only')
+
+    pyi_builder.test_spec(
+        SPEC_DIR / "pyi_spec_options.spec",
+        pyi_args=["--", "--optional-dependency", "email", "--optional-dependency", "gzip"]
+    )
+    exe, = pyi_builder._find_executables("pyi_spec_options")
+    p = subprocess.run([exe], stdout=subprocess.PIPE, encoding="utf-8")
+    assert p.stdout == "Available dependencies: email gzip\n"
+
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as ex:
+        pyi_builder.test_spec(SPEC_DIR / "pyi_spec_options.spec", pyi_args=["--", "--help"])
+    assert ex.value.code == 0
+    assert "help blah blah blah" in capsys.readouterr().out
+
+    with pytest.raises(SystemExit) as ex:
+        pyi_builder.test_spec(SPEC_DIR / "pyi_spec_options.spec", pyi_args=["--", "--onefile"])
+    assert "pyi_spec_options.spec: error: unrecognized arguments: --onefile" in capsys.readouterr().err

@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-# Copyright (c) 2013-2022, PyInstaller Development Team.
+# Copyright (c) 2013-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -16,12 +16,21 @@ from __future__ import annotations
 import argparse
 import os
 import platform
+import sys
 from collections import defaultdict
 
 from PyInstaller import __version__
 from PyInstaller import log as logging
 # Note: do not import anything else until compat.check_requirements function is run!
 from PyInstaller import compat
+
+try:
+    from argcomplete import autocomplete
+except ImportError:
+
+    def autocomplete(parser):
+        return None
+
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +165,18 @@ def run(pyi_args: list | None = None, pyi_config: dict | None = None):
 
     import PyInstaller.log
 
+    old_sys_argv = sys.argv
     try:
         parser = generate_parser()
-        args = parser.parse_args(pyi_args)
+        autocomplete(parser)
+        if pyi_args is None:
+            pyi_args = sys.argv[1:]
+        try:
+            index = pyi_args.index("--")
+        except ValueError:
+            index = len(pyi_args)
+        args = parser.parse_args(pyi_args[:index])
+        spec_args = pyi_args[index + 1:]
         PyInstaller.log.__process_options(parser, args)
 
         # Print PyInstaller version, Python version, and platform as the first line to stdout. This helps us identify
@@ -176,6 +194,7 @@ def run(pyi_args: list | None = None, pyi_config: dict | None = None):
         else:
             spec_file = run_makespec(**vars(args))
 
+        sys.argv = [spec_file, *spec_args]
         run_build(pyi_config, spec_file, **vars(args))
 
     except KeyboardInterrupt:
@@ -183,6 +202,16 @@ def run(pyi_args: list | None = None, pyi_config: dict | None = None):
     except RecursionError:
         from PyInstaller import _recursion_too_deep_message
         _recursion_too_deep_message.raise_with_msg()
+    finally:
+        sys.argv = old_sys_argv
+
+
+def _console_script_run():
+    # Python prepends the main script's parent directory to sys.path. When PyInstaller is ran via the usual
+    # `pyinstaller` CLI entry point, this directory is $pythonprefix/bin which should not be in sys.path.
+    if os.path.basename(sys.path[0]) in ("bin", "Scripts"):
+        sys.path.pop(0)
+    run()
 
 
 if __name__ == '__main__':

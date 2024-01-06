@@ -16,6 +16,17 @@ on:
 env:
   # Colored pytest output on CI despite not having a tty
   FORCE_COLOR: 1
+  # Enable strict unpack mode to catch file duplication problems in onefile builds (at executable run-time).
+  PYINSTALLER_STRICT_UNPACK_MODE: 1
+  # Enable strict collect mode to catch file duplication problems in PKG/Carchive (onefile builds) or COLLECT
+  # (onedir builds) at build time.
+  PYINSTALLER_STRICT_COLLECT_MODE: 1
+  # Enable strict handling of codesign errors for macOS bundles.
+  PYINSTALLER_STRICT_BUNDLE_CODESIGN_ERROR: 1
+  # Enable strict verification of macOS bundles w.r.t. the code-signing requirements.
+  PYINSTALLER_VERIFY_BUNDLE_SIGNATURE: 1
+  # Enable PEP 597 EncodingWarnings
+  PYTHONWARNDEFAULTENCODING: true
 
 permissions:
   contents: read # to fetch code (actions/checkout)
@@ -25,8 +36,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: [3.7, 3.8, 3.9, '3.10', '3.11-dev']
-        os: ['windows-latest', 'ubuntu-latest', 'macos-11']
+        python-version: [3.8, 3.9, '3.10', '3.11', '3.12']
+        os: ['windows-latest', 'ubuntu-22.04', 'macos-12']
       fail-fast: false
     steps:
       - uses: actions/checkout@v3
@@ -40,7 +51,9 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update -qq
+          sudo apt-get upgrade -qq
           sudo apt-get install -qq --no-install-recommends \
+            libcmocka-dev \
             libxml2-dev libxslt1-dev gfortran libatlas-base-dev \
             libespeak1 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
             libxkbcommon-x11-0 libxcb-icccm4 libxcb1 openssl \
@@ -48,8 +61,9 @@ jobs:
             libxcb-shape0-dev libxcb-xkb-dev xvfb \
             libopengl0 libegl1 \
             libpulse0 libpulse-mainloop-glib0 \
-            libgstreamer-plugins-base1.0-0 libgstreamer-gl1.0-0 \
-            gir1.2-gtk-3.0 libgirepository1.0-dev
+            gstreamer1.0-plugins-base libgstreamer-gl1.0-0 \
+            gir1.2-gtk-3.0 libgirepository1.0-dev \
+            libfuse2
 
       - name: Download AppImage tool
         if: startsWith(matrix.os, 'ubuntu')
@@ -75,8 +89,18 @@ jobs:
         run: |
           # Compile bootloader
           cd bootloader
-          CC="gcc -std=gnu90" python waf all
-          cd ..
+          CC="gcc -std=gnu90" python waf --tests all
+
+      - name: Check if bootloader is buildable with --static-zlib option
+        if: startsWith(matrix.os, 'ubuntu')
+        run: cd bootloader && python waf --static-zlib --tests all
+
+      - name: Check if bootloader is buildable for Windows ARM
+        if: startsWith(matrix.os, 'windows')
+        run: |
+            cd bootloader
+            python waf --tests --target-arch=64bit-arm all
+            ls ../PyInstaller/bootloader/Windows-64bit-arm
 
       - name: Install PyInstaller
         run: |
@@ -85,21 +109,20 @@ jobs:
 
           # Compile bootloader
           cd bootloader
-          python waf all
+          python waf --tests all
           cd ..
 
           # Install PyInstaller.
-          pip install --progress-bar=off .
+          pip install --progress-bar=off .[completion]
 
           # Make sure the help options print.
           python -m PyInstaller -h
 
-      - name: Install test dependencies (tools)
+      - name: Install test dependencies (base tools)
         run: |
-          pip install --progress-bar=off --upgrade --requirement tests/requirements-tools.txt
+          pip install --progress-bar=off --upgrade --requirement tests/requirements-base.txt
 
-      - name: Install test dependencies (libraries)
-        id: install_libraries
+      - name: Install test dependencies (tools and libraries)
         if: ${{ !endsWith(matrix.python-version, '-dev') }}
         run: |
           pip install --progress-bar=off --upgrade --requirement tests/requirements-libraries.txt
@@ -117,11 +140,11 @@ jobs:
           Xvfb :99 &
           echo "DISPLAY=:99" >> $GITHUB_ENV
 
-      # Required on macOS 11 by tests that register custom URL schema. This could also be achieved by passing
+      # Required on macOS >= 11 by tests that register custom URL schema. This could also be achieved by passing
       # --basetemp to pytest, but using environment variable allows us to have a unified "Run test" step for
       # all OSes.
       - name: Relocate temporary dir
-        if: matrix.os == 'macos-11' || matrix.os == 'macos-latest'
+        if: startsWith(matrix.os, 'macos')
         run: |
           echo "PYTEST_DEBUG_TEMPROOT=$RUNNER_TEMP" >> $GITHUB_ENV
 
@@ -129,12 +152,21 @@ jobs:
         run: >
             pytest
             -n 3 --maxfail 3 --durations 10 tests/unit tests/functional
-            --force-flaky --no-flaky-report --reruns 3 --reruns-delay 10
+            --force-flaky --no-flaky-report
 
-      # hooksample is installed as part of tests/requirements-libraries.txt, so run this step only if we
-      # installed all libraries.
+      # Install and test PyInstaller Hook Sample, to ensure that tests declared in
+      # entry-points are discovered.
+      - name: Install hooksample
+        run: pip install "https://github.com/pyinstaller/hooksample/archive/v4.0rc1.zip"
+
+      - name: Inject bogus hook
+        shell: python
+        run: |
+          from _pyinstaller_hooks_contrib.hooks.stdhooks import __path__ as path
+          with open(path[0] + "/hook-pyi_hooksample.py", "w") as f:
+              f.write('assert 0, "Wrong hook! Use the pyi_hooksample copy instead!"\n')
+
       - name: Run hooksample tests
-        if: steps.install_libraries.outcome == 'success'
         run: |
           # The ``run_tests`` script is invoked with the ``-c`` option to
           # specify a ``pytest.ini``, rather than allowing pytest to find
@@ -153,7 +185,7 @@ jobs:
           foo
           pytest
           -n 3 --maxfail 3 --durations 10 tests/unit tests/functional
-          --force-flaky --no-flaky-report --reruns 3 --reruns-delay 10
+          --force-flaky --no-flaky-report
 
       # Verify that installing from sdist works. This is mostly just a verification that the MANIFEST.in contains
       # all the extras needed to compile the bootloader.

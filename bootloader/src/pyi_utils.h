@@ -1,6 +1,6 @@
 /*
  * ****************************************************************************
- * Copyright (c) 2013-2022, PyInstaller Development Team.
+ * Copyright (c) 2013-2023, PyInstaller Development Team.
  *
  * Distributed under the terms of the GNU General Public License (version 2
  * or later) with exception for distributing the bootloader.
@@ -30,24 +30,20 @@
 size_t strnlen(const char *str, size_t n);
 #endif
 
-// some platforms do not provide strndup
-#ifndef HAVE_STRNDUP
-char *strndup(const char * str, size_t n);
-#endif
-
 /* Environment variables. */
-
 char *pyi_getenv(const char *variable);
 int pyi_setenv(const char *variable, const char *value);
 int pyi_unsetenv(const char *variable);
 
-/* Temporary files. */
+/* Temporary directory. */
+int pyi_create_tempdir(char *buff, const char *runtime_tmpdir);
 
-int pyi_create_temp_path(ARCHIVE_STATUS *status);
-void pyi_remove_temp_path(const char *dir);
+/* Recursive directory deletion. */
+void pyi_recursive_rmdir(const char *dir);
 
 /* File manipulation. */
-FILE *pyi_open_target(const char *path, const char* name_);
+int pyi_create_parent_directory(const char *path, const char *name_);
+FILE *pyi_open_target_file(const char *path, const char* name_);
 int pyi_copy_file(const char *src, const char *dst, const char *filename);
 
 /* Other routines. */
@@ -59,9 +55,9 @@ int pyi_utils_create_child(const char *thisfile, const ARCHIVE_STATUS *status,
 pid_t pyi_utils_get_child_pid();
 void pyi_utils_reraise_child_signal();
 #endif
-int pyi_utils_set_environment(const ARCHIVE_STATUS *status);
 
 #if !defined(_WIN32) && !defined(__APPLE__)
+int pyi_utils_set_library_search_path(const char *path);
 int pyi_utils_replace_process(const char *thisfile, const int argc, char *const argv[]);
 #endif
 

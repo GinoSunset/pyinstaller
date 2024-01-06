@@ -1,6 +1,6 @@
 /*
  * ****************************************************************************
- * Copyright (c) 2013-2022, PyInstaller Development Team.
+ * Copyright (c) 2013-2023, PyInstaller Development Team.
  *
  * Distributed under the terms of the GNU General Public License (version 2
  * or later) with exception for distributing the bootloader.
@@ -120,12 +120,13 @@ typedef struct _splash_status {
     char *requirements;
     int   requirements_len;
     /*
-     * Flag if tcl and tk libraries were loaded. This indicate if it is safe
-     * to call functions from Tcl/Tk. If the binaries are missing the splash
-     * screen cannot be shown.
+     * Flag indicating that Tcl/Tk shared libraries were successfully loaded
+     * and required symbols from them have been succesfully loaded and bound.
+     * This is primarily used in finalization function to detect properly
+     * handle tear-down of splash screen that failed to load the libraries or
+     * symbols.
      */
-    bool is_tcl_loaded;
-    bool is_tk_loaded;
+    bool dlls_fully_loaded;
     /*
      * Keep the handles to the shared library, in order to close
      * them at finalization.
@@ -135,13 +136,15 @@ typedef struct _splash_status {
 
 } SPLASH_STATUS;
 
-typedef int (pyi_splash_event_proc)(SPLASH_STATUS *, void *);
+typedef int (pyi_splash_event_proc)(SPLASH_STATUS *, const void *);
 
 /**
  * Public API functions for pyi_splash
  */
-int pyi_splash_setup(SPLASH_STATUS *splash_status, ARCHIVE_STATUS *archive_status,
-                     SPLASH_DATA_HEADER *data_header);
+int pyi_splash_setup(
+    SPLASH_STATUS *splash_status,
+    ARCHIVE_STATUS *archive_status
+);
 int pyi_splash_attach(SPLASH_STATUS *status);
 int pyi_splash_finalize(SPLASH_STATUS *status);
 int pyi_splash_start(SPLASH_STATUS *status, const char *executable);
@@ -150,9 +153,13 @@ int pyi_splash_start(SPLASH_STATUS *status, const char *executable);
 SPLASH_DATA_HEADER *pyi_splash_find(ARCHIVE_STATUS *status);
 int pyi_splash_extract(ARCHIVE_STATUS *archive_status, SPLASH_STATUS *splash_status);
 
-int pyi_splash_send(SPLASH_STATUS *status, bool async, void *user_data,
-                    pyi_splash_event_proc proc);
-int pyi_splash_update_prg(SPLASH_STATUS *status, TOC *ptoc);
+int pyi_splash_send(
+    SPLASH_STATUS *status,
+    bool async,
+    const void *user_data,
+    pyi_splash_event_proc proc
+);
+int pyi_splash_update_prg(SPLASH_STATUS *status, const TOC *ptoc);
 
 /* Memory allocation functions */
 SPLASH_STATUS *pyi_splash_status_new();

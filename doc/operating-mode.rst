@@ -133,12 +133,6 @@ than the entire folder.
 or different dependencies, or if the dependencies
 are upgraded, you must redistribute the whole bundle.)
 
-A small disadvantage of the one-folder format is that the one folder contains
-a large number of files.
-Your user must find the :file:`myscript` executable
-in a long list of names or among a big array of icons.
-Also your user can create
-a problem by accidentally dragging files out of the folder.
 
 .. _how the one-folder program works:
 
@@ -297,12 +291,6 @@ Using Cython you can convert Python modules into C and compile
 the C to machine language.
 PyInstaller can follow import statements that refer to
 Cython C object modules and bundle them.
-
-Additionally, Python bytecode can be obfuscated with AES256 by specifying
-an encryption key on PyInstaller's command line. Please note that it is still
-very easy to extract the key and get back the original bytecode, but it
-should prevent most forms of "casual" tampering.
-See :ref:`encrypting python bytecode` for details.
 
 
 .. include:: _common_definitions.txt

@@ -1,6 +1,6 @@
 /*
  * ****************************************************************************
- * Copyright (c) 2013-2022, PyInstaller Development Team.
+ * Copyright (c) 2013-2023, PyInstaller Development Team.
  *
  * Distributed under the terms of the GNU General Public License (version 2
  * or later) with exception for distributing the bootloader.
@@ -33,11 +33,15 @@ bool pyi_path_executable(char *execfile, const char *appname);
 bool pyi_path_homepath(char *homepath, const char *executable);
 bool pyi_path_archivefile(char *archivefile, const char *executable);
 
+bool pyi_path_is_symlink(const char *path);
+
 #ifdef _WIN32
 FILE *pyi_path_fopen(const char *filename, const char *mode);
 #else
-    #define pyi_path_fopen(x, y)    fopen(x, y)
+#define pyi_path_fopen(x, y) fopen(x, y)
 #endif
-#define pyi_path_fclose(x)    fclose(x)
+
+int pyi_path_mkdir(const char *path);
+int pyi_path_mksymlink(const char *link_target, const char *link_name);
 
 #endif  /* PYI_PATH_H */

@@ -1,8 +1,6 @@
 import unittest
 from PyInstaller.lib.modulegraph import modulegraph
-import pkg_resources
 import os
-import imp
 import sys
 import shutil
 import warnings
@@ -11,25 +9,15 @@ from PyInstaller.compat import is_win
 from PyInstaller.utils.tests import importorskip
 import textwrap
 import pickle
+from io import StringIO
 
 from importlib._bootstrap_external import SourceFileLoader, ExtensionFileLoader
 from zipimport import zipimporter
 
-try:
-    bytes
-except NameError:
-    bytes = str
-
-try:
-    from StringIO import StringIO
-except ImportError:
-    from io import StringIO
 
 TESTDATA = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "testdata", "nspkg")
-
-READ_MODE = "U" if sys.version_info[:2] < (3,4) else "r"
 
 try:
     expectedFailure = unittest.expectedFailure
@@ -83,103 +71,6 @@ class TestFunctions (unittest.TestCase):
     if not hasattr(unittest.TestCase, 'assertIsInstance'):
         def assertIsInstance(self, obj, types):
             self.assertTrue(isinstance(obj, types), '%r is not instance of %r'%(obj, types))
-
-    def test_eval_str_tuple(self):
-        for v in [
-            '()',
-            '("hello",)',
-            '("hello", "world")',
-            "('hello',)",
-            "('hello', 'world')",
-            "('hello', \"world\")",
-            ]:
-
-            self.assertEqual(modulegraph._eval_str_tuple(v), eval(v))
-
-        self.assertRaises(ValueError, modulegraph._eval_str_tuple, "")
-        self.assertRaises(ValueError, modulegraph._eval_str_tuple, "'a'")
-        self.assertRaises(ValueError, modulegraph._eval_str_tuple, "'a', 'b'")
-        self.assertRaises(ValueError, modulegraph._eval_str_tuple, "('a', ('b', 'c'))")
-        self.assertRaises(ValueError, modulegraph._eval_str_tuple, "('a', ('b\", 'c'))")
-
-    def test_namespace_package_path(self):
-        class DS (object):
-            def __init__(self, path, namespace_packages=None):
-                self.location = path
-                self._namespace_packages = namespace_packages
-
-            def has_metadata(self, key):
-                if key == 'namespace_packages.txt':
-                    return self._namespace_packages is not None
-
-                raise ValueError("invalid lookup key")
-
-            def get_metadata(self, key):
-                if key == 'namespace_packages.txt':
-                    if self._namespace_packages is None:
-                        raise ValueError("no file")
-
-                    return self._namespace_packages
-
-                raise ValueError("invalid lookup key")
-
-        class WS (object):
-            def __init__(self, path=None):
-                pass
-
-            def __iter__(self):
-                yield DS("/pkg/pkg1")
-                yield DS("/pkg/pkg2", "foo\n")
-                yield DS("/pkg/pkg3", "bar.baz\n")
-                yield DS("/pkg/pkg4", "foobar\nfoo\n")
-
-        saved_ws = pkg_resources.WorkingSet
-        try:
-            pkg_resources.WorkingSet = WS
-
-            self.assertEqual(modulegraph._namespace_package_path("sys", ["appdir/pkg"]),
-                             ["appdir/pkg"])
-            self.assertEqual(modulegraph._namespace_package_path("foo", ["appdir/pkg"]),
-                             ["appdir/pkg",
-                              os.path.join("/pkg/pkg2", "foo"),
-                              os.path.join("/pkg/pkg4", "foo")])
-            self.assertEqual(modulegraph._namespace_package_path("bar.baz", ["appdir/pkg"]),
-                             ["appdir/pkg",
-                              os.path.join("/pkg/pkg3", "bar", "baz")])
-
-        finally:
-            pkg_resources.WorkingSet = saved_ws
-
-    def test_os_listdir(self):
-        root = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), 'testdata')
-
-        if is_win:
-            dirname = 'C:\\Windows\\'
-            filename = 'C:\\Windows\\user32.dll\\foobar'
-        else:
-            dirname = '/etc/'
-            filename = '/etc/hosts/foobar'
-
-        self.assertEqual(modulegraph.os_listdir(dirname), os.listdir(dirname))
-        self.assertRaises(IOError, modulegraph.os_listdir, filename)
-        self.assertRaises(IOError, modulegraph.os_listdir, os.path.join(root, 'test.egg', 'bar'))
-
-        self.assertEqual(list(sorted(modulegraph.os_listdir(os.path.join(root, 'test.egg', 'foo')))),
-            [ 'bar', 'bar.txt', 'baz.txt' ])
-
-    def test_code_to_file(self):
-        try:
-            code = modulegraph._code_to_file.__code__
-        except AttributeError:
-            code = modulegraph._code_to_file.func_code
-
-        data = modulegraph._code_to_file(code)
-        self.assertTrue(hasattr(data, 'read'))
-
-        content = data.read()
-        self.assertIsInstance(content, bytes)
-        data.close()
 
     def test_find_module(self):
         for path in ('syspath', 'syspath.zip', 'syspath.egg'):
@@ -279,101 +170,6 @@ class TestFunctions (unittest.TestCase):
                 self.assertEqual(filename, os.path.join(path, 'myext' + ext))
                 self.assertIsInstance(loader, ExtensionFileLoader)
 
-    def test_moduleInfoForPath(self):
-        self.assertEqual(modulegraph.moduleInfoForPath("/somewhere/else/file.txt"), None)
-
-        info = modulegraph.moduleInfoForPath("/somewhere/else/file.py")
-        self.assertEqual(info[0], "file")
-        if sys.version_info[:2] >= (3,4):
-            self.assertEqual(info[1], "r")
-        else:
-            self.assertEqual(info[1], "U")
-        self.assertEqual(info[2], imp.PY_SOURCE)
-
-        info = modulegraph.moduleInfoForPath("/somewhere/else/file.pyc")
-        self.assertEqual(info[0], "file")
-        self.assertEqual(info[1], "rb")
-        self.assertEqual(info[2], imp.PY_COMPILED)
-
-        if sys.platform in ('darwin', 'linux2'):
-            info = modulegraph.moduleInfoForPath("/somewhere/else/file.so")
-            self.assertEqual(info[0], "file")
-            self.assertEqual(info[1], "rb")
-            self.assertEqual(info[2], imp.C_EXTENSION)
-
-        elif sys.platform in ('win32',):
-            info = modulegraph.moduleInfoForPath("/somewhere/else/file.pyd")
-            self.assertEqual(info[0], "file")
-            self.assertEqual(info[1], "rb")
-            self.assertEqual(info[2], imp.C_EXTENSION)
-
-    if sys.version_info[:2] > (2,5):
-            def test_deprecated(self):
-                saved_add = modulegraph.addPackagePath
-                saved_replace = modulegraph.replacePackage
-                try:
-                    called = []
-
-                    def log_add(*args, **kwds):
-                        called.append(('add', args, kwds))
-                    def log_replace(*args, **kwds):
-                        called.append(('replace', args, kwds))
-
-                    modulegraph.addPackagePath = log_add
-                    modulegraph.replacePackage = log_replace
-
-                    with warnings.catch_warnings(record=True) as w:
-                        warnings.simplefilter("always")
-                        modulegraph.ReplacePackage('a', 'b')
-                        modulegraph.AddPackagePath('c', 'd')
-
-                    self.assertEqual(len(w), 2)
-                    self.assertTrue(w[-1].category is DeprecationWarning)
-                    self.assertTrue(w[-2].category is DeprecationWarning)
-
-                    self.assertEqual(called, [
-                        ('replace', ('a', 'b'), {}),
-                        ('add', ('c', 'd'), {}),
-                    ])
-
-                finally:
-                    modulegraph.addPackagePath = saved_add
-                    modulegraph.replacePackage = saved_replace
-
-    def test_addPackage(self):
-        saved = modulegraph._packagePathMap
-        self.assertIsInstance(saved, dict)
-        try:
-            modulegraph._packagePathMap = {}
-
-            modulegraph.addPackagePath('foo', 'a')
-            self.assertEqual(modulegraph._packagePathMap, { 'foo': ['a'] })
-
-            modulegraph.addPackagePath('foo', 'b')
-            self.assertEqual(modulegraph._packagePathMap, { 'foo': ['a', 'b'] })
-
-            modulegraph.addPackagePath('bar', 'b')
-            self.assertEqual(modulegraph._packagePathMap, { 'foo': ['a', 'b'], 'bar': ['b'] })
-
-        finally:
-            modulegraph._packagePathMap = saved
-
-
-    def test_replacePackage(self):
-        saved = modulegraph._replacePackageMap
-        self.assertIsInstance(saved, dict)
-        try:
-            modulegraph._replacePackageMap = {}
-
-            modulegraph.replacePackage("a", "b")
-            self.assertEqual(modulegraph._replacePackageMap, {"a": "b"})
-            modulegraph.replacePackage("a", "c")
-            self.assertEqual(modulegraph._replacePackageMap, {"a": "c"})
-            modulegraph.replacePackage("b", "c")
-            self.assertEqual(modulegraph._replacePackageMap, {"a": "c", 'b': 'c'})
-
-        finally:
-            modulegraph._replacePackageMap = saved
 
 class TestNode (unittest.TestCase):
     if not hasattr(unittest.TestCase, 'assertIsInstance'):
@@ -567,7 +363,6 @@ class TestModuleGraph (unittest.TestCase):
 
         # Stricter tests would be nice, but that requires
         # better control over what's on sys.path
-        self.assertIsInstance(o.nspackages, dict)
 
         g = Graph.Graph()
         o = modulegraph.ModuleGraph(['a', 'b', 'c'], ['modA'], [
@@ -582,27 +377,8 @@ class TestModuleGraph (unittest.TestCase):
             'modC': ['modE', 'modF'],
         })
         self.assertEqual(o.replace_paths, [('fromA', 'toB'), ('fromC', 'toD')])
-        self.assertEqual(o.nspackages, {})
         self.assertTrue(o.graph is g)
         self.assertEqual(o.debug, 1)
-
-    def test_calc_setuptools_nspackages(self):
-        stdlib = [ fn for fn in sys.path if fn.startswith(sys.prefix) and 'site-packages' not in fn ]
-        for subdir in [ nm for nm in os.listdir(TESTDATA) if nm != 'src' ]:
-            graph = modulegraph.ModuleGraph(path=[
-                    os.path.join(TESTDATA, subdir, "parent"),
-                    os.path.join(TESTDATA, subdir, "child"),
-                ] + stdlib)
-
-            pkgs = graph.nspackages
-            self.assertTrue('namedpkg' in pkgs)
-            self.assertEqual(set(pkgs['namedpkg']),
-                    set([
-                        os.path.join(TESTDATA, subdir, "parent", "namedpkg"),
-                        os.path.join(TESTDATA, subdir, "child", "namedpkg"),
-                    ]))
-            self.assertFalse(os.path.exists(os.path.join(TESTDATA, subdir, "parent", "namedpkg", "__init__.py")))
-            self.assertFalse(os.path.exists(os.path.join(TESTDATA, subdir, "child", "namedpkg", "__init__.py")))
 
     def testImpliedReference(self):
         graph = modulegraph.ModuleGraph()

@@ -1,6 +1,6 @@
 /*
  * ****************************************************************************
- * Copyright (c) 2013-2022, PyInstaller Development Team.
+ * Copyright (c) 2013-2023, PyInstaller Development Team.
  *
  * Distributed under the terms of the GNU General Public License (version 2
  * or later) with exception for distributing the bootloader.
@@ -27,9 +27,10 @@
 #elif __APPLE__
     #include <libgen.h>      /* basename(), dirname() */
     #include <mach-o/dyld.h> /* _NSGetExecutablePath() */
+    #include <unistd.h>  /* symlink() */
 #else
     #include <libgen.h>  /* basename() */
-    #include <unistd.h>  /* unlink */
+    #include <unistd.h>  /* unlink(), symlink() */
 #endif
 
 #include <stdio.h>  /* FILE, fopen */
@@ -61,18 +62,18 @@ pyi_path_dirname(char *result, const char *path)
     /* Remove separator from the end. */
     len = strlen(result)-1;
     if (len >= 0 && result[len] == PYI_SEP) {
-        result[len] = PYI_NULLCHAR;
+        result[len] = 0;
     }
 
     /* Remove the rest of the string. */
     match = strrchr(result, PYI_SEP);
     if (match != NULL) {
-        *match = PYI_NULLCHAR;
+        *match = 0;
     }
     else {
         /* No dir separator found, so no dir-part, so use current dir */
         *result = PYI_CURDIR;
-        result[1] = PYI_NULLCHAR;
+        result[1] = 0;
     }
 #else /* ifndef HAVE_DIRNAME */
       /* Use dirname() for other platforms. */
@@ -140,7 +141,7 @@ pyi_path_join(char *result, const char *path1, const char *path2)
     /* Append trailing slash if missing. */
     if (result[len-1] != PYI_SEP) {
         result[len++] = PYI_SEP;
-        result[len++] = PYI_NULLCHAR;
+        result[len++] = 0;
     }
     len = PATH_MAX - len;
     len2 = strlen(path2);
@@ -151,7 +152,7 @@ pyi_path_join(char *result, const char *path1, const char *path2)
     if (path2[len2 - 1] == PYI_SEP) {
         /* Append path2 without slash. */
         strncat(result, path2, len);
-        result[strlen(result) - 1] = PYI_NULLCHAR;
+        result[strlen(result) - 1] = 0;
     }
     else {
         /* path2 does not end with slash. */
@@ -245,6 +246,47 @@ pyi_search_path(char * result, const char * appname)
     return false;
 }
 
+
+#if defined(__linux__)
+
+/*
+ * Return 0 if the given executable name is in fact the ld.so dynamic loader.
+ */
+static bool
+pyi_is_ld_linux_so(const char *execfile)
+{
+    char basename[PATH_MAX];
+    int status;
+    char loader_name[65] = "";
+    int soversion = 0;
+
+    pyi_path_basename(basename, execfile);
+
+    /* Match the string against ld-*.so.X. In sscanf, the %s is greedy, so
+     * instead we match with character group that disallows dot (.). Also
+     * limit the name length; note that the output array must be one byte
+     * larger, to include the terminating NULL character. */
+    status = sscanf(basename, "ld-%64[^.].so.%d", loader_name, &soversion);
+    if (status != 2) {
+        return false;
+    }
+
+    /* If necessary, we could further validate the loader name and soversion
+     * against known patterns:
+     *  - ld-linux.so.2 (glibc, x86)
+     *  - ld-linux-x86-64.so.2 (glibc, x86_64)
+     *  - ld-linux-x32.so.2 (glibc, x32)
+     *  - ld-linux-aarch64.so.1 (glibc, aarch64)
+     *  - ld-musl-x86_64.so.1 (musl, x86_64)
+     *  - ...
+     */
+
+    return true;
+}
+
+#endif /* defined(__linux__) */
+
+
 /*
  * Return full path to the current executable.
  * Executable is the .exe created by pyinstaller: path/myappname.exe
@@ -292,7 +334,7 @@ pyi_path_executable(char *execfile, const char *appname)
 #else /* ifdef _WIN32 */
     /* On Linux, Cygwin, FreeBSD, and Solaris, we try these /proc paths first
      */
-    size_t name_len = -1;
+    ssize_t name_len = -1;
 
     #if defined(__linux__) || defined(__CYGWIN__)
     name_len = readlink("/proc/self/exe", execfile, PATH_MAX-1);  /* Linux, Cygwin */
@@ -304,8 +346,20 @@ pyi_path_executable(char *execfile, const char *appname)
 
     if (name_len != -1) {
         /* execfile is not yet zero-terminated. result is the byte count. */
-        *(execfile + name_len) = '\0';
-    } else {
+        execfile[name_len] = '\0';
+    }
+
+    /* On linux, we might have been launched using custom ld.so dynamic loader.
+     * In that case, /proc/self/exe points to the ld.so executable, and we need
+     * to ignore it. */
+#if defined(__linux__)
+    if (pyi_is_ld_linux_so(execfile) == true) {
+        VS("LOADER: resolved executable name %s is ld.so dynamic loader - ignoring it!\n", execfile);
+        name_len = -1;
+    }
+#endif
+
+    if (name_len == -1) {
         if (strchr(appname, PYI_SEP)) {
             /* Absolute or relative path: Canonicalize directory path,
              * but keep original basename.
@@ -333,21 +387,28 @@ pyi_path_executable(char *execfile, const char *appname)
             }
         }
     }
+
+    /* Check if execfile is a symbolic link. Usually, the /proc entry resolution
+     * ensures that it is a regular file path. However, in some cases, /proc entry
+     * resolution is unavailable (e.g., launching via ld.so dynamic loader), and
+     * we need to deal with symlinks ourselves... */
+    if (pyi_path_is_symlink(execfile)) {
+        /* Create a copy of original name; we need this to resolve relative symbolic
+         * link (as well as for the error message). */
+        char orig_execfile[PATH_MAX];
+        if (snprintf(orig_execfile, PATH_MAX, "%s", execfile) >= PATH_MAX) {
+            return false;
+        }
+        /* Fully resolve the path */
+        if (pyi_path_fullpath(execfile, PATH_MAX, orig_execfile) == false) {
+            VS("LOADER: Cannot resolve executable symbolic link %s\n", orig_execfile);
+            return false;
+        }
+    }
+
 #endif /* ifdef _WIN32 */
     VS("LOADER: executable is %s\n", execfile);
     return true;
-}
-
-/*
- * Return absolute path to homepath. It is the directory containing executable.
- */
-bool
-pyi_path_homepath(char *homepath, const char *thisfile)
-{
-    /* Fill in here (directory of thisfile). */
-    bool rc = pyi_path_dirname(homepath, thisfile);
-    VS("LOADER: homepath is %s\n", homepath);
-    return rc;
 }
 
 /*
@@ -384,3 +445,76 @@ pyi_path_fopen(const char* filename, const char* mode)
     return _wfopen(wfilename, wmode);
 }
 #endif
+
+bool
+pyi_path_is_symlink(const char *path)
+{
+#ifdef _WIN32
+    wchar_t wpath[PATH_MAX + 1];
+    pyi_win32_utils_from_utf8(wpath, path, PATH_MAX);
+    return pyi_win32_is_symlink(wpath);
+#else
+    struct stat buf;
+    if (lstat(path, &buf) < 0) {
+        return false;
+    }
+    return S_ISLNK(buf.st_mode);
+#endif
+}
+
+/*
+ * Create directory.
+ */
+int
+pyi_path_mkdir(const char *path)
+{
+#ifdef _WIN32
+    wchar_t wpath[PATH_MAX];
+    pyi_win32_utils_from_utf8(wpath, path, PATH_MAX);
+    return pyi_win32_mkdir(wpath);
+#else
+    return mkdir(path, 0700);
+#endif
+}
+
+/*
+ * Create symbolic link.
+ */
+int
+pyi_path_mksymlink(const char *link_target, const char *link_name)
+{
+#ifdef _WIN32
+    static int unprivileged_create_available = 1;
+    wchar_t wlink_target[PATH_MAX];
+    wchar_t wlink_name[PATH_MAX];
+    DWORD flags = 0;
+
+    if (!pyi_win32_utils_from_utf8(wlink_target, link_target, PATH_MAX)) {
+        return -1;
+    }
+    if (!pyi_win32_utils_from_utf8(wlink_name, link_name, PATH_MAX)) {
+        return -1;
+    }
+    /* Creation of symbolic links in unprivileged mode was introduced
+     * in Windows 10 build 14972. However, its requirement for Developer
+     * Mode to be enabled makes it impractical for general cases. So
+     * we implement full support here, but avoid creating symbolic links
+     * on Windows in the first place...
+     */
+    if (unprivileged_create_available) {
+        flags |= SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;
+    }
+    if (CreateSymbolicLinkW(wlink_name, wlink_target, flags) == 0) {
+        /* Check if the error was caused by use of SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE */
+        if (unprivileged_create_available && GetLastError() == ERROR_INVALID_PARAMETER) {
+            /* Disable it and try again */
+            unprivileged_create_available = 0;
+            return pyi_path_mksymlink(link_target, link_name);
+        }
+        return -1;
+    }
+    return 0;
+#else
+    return symlink(link_target, link_name);
+#endif
+}

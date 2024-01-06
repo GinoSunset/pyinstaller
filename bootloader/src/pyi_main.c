@@ -1,6 +1,6 @@
 /*
  * ****************************************************************************
- * Copyright (c) 2013-2022, PyInstaller Development Team.
+ * Copyright (c) 2013-2023, PyInstaller Development Team.
  *
  * Distributed under the terms of the GNU General Public License (version 2
  * or later) with exception for distributing the bootloader.
@@ -47,14 +47,23 @@
 #include "pyi_apple_events.h"
 
 
+/* Console hiding/minimization options. Windows only. */
+#if defined(_WIN32) && !defined(WINDOWED)
+
+#define HIDE_CONSOLE_OPTION_HIDE_EARLY "hide-early"
+#define HIDE_CONSOLE_OPTION_HIDE_LATE "hide-late"
+#define HIDE_CONSOLE_OPTION_MINIMIZE_EARLY "minimize-early"
+#define HIDE_CONSOLE_OPTION_MINIMIZE_LATE "minimize-late"
+
+#endif
+
+
 static int
 _pyi_allow_pkg_sideload(const char *executable)
 {
     FILE *file = NULL;
     uint64_t magic_offset;
     unsigned char magic[8];
-
-    int rc = 0;
 
     /* First, find the PKG sideload signature in the executable */
     file = pyi_path_fopen(executable, "rb");
@@ -86,7 +95,6 @@ pyi_main(int argc, char * argv[])
     ARCHIVE_STATUS *archive_status = NULL;
     SPLASH_STATUS *splash_status = NULL;
     char executable[PATH_MAX];
-    char homepath[PATH_MAX];
     char archivefile[PATH_MAX];
     int rc = 0;
     int in_child = 0;
@@ -97,15 +105,14 @@ pyi_main(int argc, char * argv[])
     setbuf(stderr, (char *)NULL);
 #endif  /* _MSC_VER */
 
-    VS("PyInstaller Bootloader 5.x\n");
+    VS("PyInstaller Bootloader 6.x\n");
 
     archive_status = pyi_arch_status_new();
     if (archive_status == NULL) {
         return -1;
     }
     if ((! pyi_path_executable(executable, argv[0])) ||
-        (! pyi_path_archivefile(archivefile, executable)) ||
-        (! pyi_path_homepath(homepath, executable))) {
+        (! pyi_path_archivefile(archivefile, executable))) {
         return -1;
     }
 
@@ -149,7 +156,7 @@ pyi_main(int argc, char * argv[])
 
     pyi_unsetenv("_MEIPASS2");
 
-    VS("LOADER: _MEIPASS2 is %s\n", (extractionpath ? extractionpath : "NULL"));
+    VS("LOADER: _MEIPASS2 is %s\n", (extractionpath ? extractionpath : "not set"));
 
     /* Try opening the archive; first attempt to read it from executable
      * itself (embedded mode), then from a stand-alone pkg file (sideload mode)
@@ -171,6 +178,18 @@ pyi_main(int argc, char * argv[])
         }
     }
 
+#if defined(_WIN32) && !defined(WINDOWED)
+    /* Early console hiding/minimization */
+    const char *hide_console_option = pyi_arch_get_option(archive_status, "pyi-hide-console");
+    if (hide_console_option != NULL) {
+        if (strcmp(hide_console_option, HIDE_CONSOLE_OPTION_HIDE_EARLY) == 0) {
+            pyi_win32_hide_console();
+        } else if (strcmp(hide_console_option, HIDE_CONSOLE_OPTION_MINIMIZE_EARLY) == 0) {
+            pyi_win32_minimize_console();
+        }
+    }
+#endif
+
 #if defined(__linux__)
     char *processname = NULL;
 
@@ -189,16 +208,26 @@ pyi_main(int argc, char * argv[])
 
 #endif  /* defined(__linux__) */
 
-    /* These are used only in pyi_pylib_set_sys_argv, which converts to wchar_t */
+    /* These are passed on to python interpreter, so they show up in sys.argv */
     archive_status->argc = argc;
     archive_status->argv = argv;
+
+    /* Check if we need to unpack the embedded archive (onefile build, or onedir
+     * build in MERGE mode). If we do, create the temporary directory. */
+    if (!in_child && archive_status->needs_to_extract) {
+        VS("LOADER: creating temporary directory...\n");
+        if (pyi_arch_create_tempdir(archive_status) == -1) {
+            return -1;
+        }
+        VS("LOADER: created temporary directory: %s\n", archive_status->temppath);
+    }
 
 #if defined(_WIN32) || defined(__APPLE__)
 
     /* On Windows and Mac use single-process for --onedir mode. */
-    if (!extractionpath && !pyi_launch_need_to_extract_binaries(archive_status)) {
+    if (!extractionpath && !archive_status->needs_to_extract) {
         VS("LOADER: No need to extract files to run; setting extractionpath to homepath\n");
-        extractionpath = homepath;
+        extractionpath = archive_status->homepath;
     }
 
 #else
@@ -208,12 +237,12 @@ pyi_main(int argc, char * argv[])
      * set environment (i.e., LD_LIBRARY_PATH) and then restart/replace the
      * process via exec() without fork() for the environment changes (library
      * search path) to take effect. */
-     if (!extractionpath && !pyi_launch_need_to_extract_binaries(archive_status)) {
+     if (!extractionpath && !archive_status->needs_to_extract) {
         VS("LOADER: No need to extract files to run; setting up environment and restarting bootloader...\n");
 
         /* Set _MEIPASS2, so that the restarted bootloader process will enter
          * the codepath that corresponds to child process. */
-        pyi_setenv("_MEIPASS2", homepath);
+        pyi_setenv("_MEIPASS2", archive_status->homepath);
 
         /* Set _PYI_ONEDIR_MODE to signal to restarted bootloader that it
          * should reset in_child variable even though it is operating in
@@ -221,10 +250,12 @@ pyi_main(int argc, char * argv[])
          * be shown. */
         pyi_setenv("_PYI_ONEDIR_MODE", "1");
 
-        /* Set up the environment, especially LD_LIBRARY_PATH. This is the
-         * main reason we are going to restart the bootloader in the first
-         * place. */
-        if (pyi_utils_set_environment(archive_status) == -1) {
+        /* Set up the library search path (by modifying LD_LIBRARY_PATH or
+         * equivalent), so that the restarted process will be able to find
+         * the collected libraries in the top-level application directory
+         * (i.e., archive_status->homepath).
+         */
+        if (pyi_utils_set_library_search_path(archive_status->homepath) == -1) {
             return -1;
         }
 
@@ -268,7 +299,7 @@ pyi_main(int argc, char * argv[])
      */
     splash_status = pyi_splash_status_new();
 
-    if (!in_child && pyi_splash_setup(splash_status, archive_status, NULL) == 0) {
+    if (!in_child && pyi_splash_setup(splash_status, archive_status) == 0) {
         /*
          * Splash resources found, start splash screen
          * If in onefile mode extract the required binaries
@@ -298,7 +329,7 @@ pyi_main(int argc, char * argv[])
         /*  If binaries were extracted to temppath,
          *  we pass it through status variable
          */
-        if (strcmp(homepath, extractionpath) != 0) {
+        if (strcmp(archive_status->homepath, extractionpath) != 0) {
             if (snprintf(archive_status->temppath, PATH_MAX,
                          "%s", extractionpath) >= PATH_MAX) {
                 VS("LOADER: temppath exceeds PATH_MAX\n");
@@ -345,6 +376,21 @@ pyi_main(int argc, char * argv[])
         }
 #endif
 
+#if defined(_WIN32) && !defined(WINDOWED)
+        /* Late console hiding/minimization; this should turn out to be a
+         * no-op in child processes of onefile programs or in spawned
+         * additional subprocesses using the executable, because the
+         * process does not own the console.
+         */
+        if (hide_console_option != NULL) {
+            if (strcmp(hide_console_option, HIDE_CONSOLE_OPTION_HIDE_LATE) == 0) {
+                pyi_win32_hide_console();
+            } else if (strcmp(hide_console_option, HIDE_CONSOLE_OPTION_MINIMIZE_LATE) == 0) {
+                pyi_win32_minimize_console();
+            }
+        }
+#endif
+
         /* Main code to initialize Python and run user's code. */
         pyi_launch_initialize(archive_status);
         rc = pyi_launch_execute(archive_status);
@@ -372,9 +418,7 @@ pyi_main(int argc, char * argv[])
         /* Run the 'child' process, then clean up. */
 
         VS("LOADER: Executing self as child\n");
-        pyi_setenv("_MEIPASS2",
-                   archive_status->temppath[0] !=
-                   0 ? archive_status->temppath : homepath);
+        pyi_setenv("_MEIPASS2", archive_status->temppath);
 
         VS("LOADER: set _MEIPASS2 to %s\n", pyi_getenv("_MEIPASS2"));
 
@@ -389,12 +433,27 @@ pyi_main(int argc, char * argv[])
 
 #endif  /* defined(__linux__) */
 
-        if (pyi_utils_set_environment(archive_status) == -1) {
+        /* On OSes other than Windows and macOS, we need to set library
+         * search path (via LD_LIBRARY_PATH or equivalent). */
+#if !defined(_WIN32) && !defined(__APPLE__)
+        if (pyi_utils_set_library_search_path(archive_status->temppath) == -1) {
             return -1;
         }
+#endif /* !defined(_WIN32) && !defined(__APPLE__) */
 
         /* Transform parent to background process on OSX only. */
         pyi_parent_to_background();
+
+#if defined(_WIN32) && !defined(WINDOWED)
+        /* Late console hiding/minimization */
+        if (hide_console_option != NULL) {
+            if (strcmp(hide_console_option, HIDE_CONSOLE_OPTION_HIDE_LATE) == 0) {
+                pyi_win32_hide_console();
+            } else if (strcmp(hide_console_option, HIDE_CONSOLE_OPTION_MINIMIZE_LATE) == 0) {
+                pyi_win32_minimize_console();
+            }
+        }
+#endif
 
         /* Run user's code in a subprocess and pass command line arguments to it. */
         rc = pyi_utils_create_child(executable, archive_status, argc, argv);
@@ -410,7 +469,7 @@ pyi_main(int argc, char * argv[])
         pyi_splash_status_free(&splash_status);
 
         if (archive_status->has_temp_directory == true) {
-            pyi_remove_temp_path(archive_status->temppath);
+            pyi_recursive_rmdir(archive_status->temppath);
         }
         pyi_arch_status_free(archive_status);
 

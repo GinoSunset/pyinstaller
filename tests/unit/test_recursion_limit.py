@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-# Copyright (c) 2005-2022, PyInstaller Development Team.
+# Copyright (c) 2005-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -72,7 +72,7 @@ def test_RecursionError_prints_message(tmpdir, large_import_chain, monkeypatch):
     ]  # yapf: disable
 
     pyi_args = [script] + default_args
-    PYI_CONFIG = configure.get_config(upx_dir=None)
+    PYI_CONFIG = configure.get_config()
     PYI_CONFIG['cachedir'] = str(tmpdir)
 
     with pytest.raises(SystemExit) as execinfo:

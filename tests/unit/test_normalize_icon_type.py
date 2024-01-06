@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-# Copyright (c) 2005-2022, PyInstaller Development Team.
+# Copyright (c) 2005-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -72,7 +72,7 @@ def test_normalize_icon_pillow(tmp_path):
     # Some random non-image file: Raises an image conversion error
 
     icon = os.path.join(tmp_path, 'pyi_icon.notanicon')
-    with open(icon, "w") as f:
+    with open(icon, "w", encoding="utf-8") as f:
         f.write("this is in fact, not an icon")
 
     with pytest.raises(ValueError):

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #-----------------------------------------------------------------------------
-# Copyright (c) 2005-2022, PyInstaller Development Team.
+# Copyright (c) 2005-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -14,13 +14,14 @@ import os
 
 import pytest
 
-from PyInstaller.compat import is_win, is_darwin
-from PyInstaller.utils.hooks import is_module_satisfies
+from PyInstaller import isolated
+from PyInstaller.compat import is_win, is_darwin, is_linux
+from PyInstaller.utils.hooks import check_requirement, can_import_module
 from PyInstaller.utils.hooks.qt import get_qt_library_info
-from PyInstaller.utils.tests import requires, xfail, skipif
+from PyInstaller.utils.tests import importorskip, requires, skipif
 
 PYQT5_NEED_OPENGL = pytest.mark.skipif(
-    is_module_satisfies('PyQt5 <= 5.10.1'),
+    check_requirement('PyQt5 <= 5.10.1'),
     reason='PyQt5 v5.10.1 and older does not package ``opengl32sw.dll``, '
     'the OpenGL software renderer, which this test requires.'
 )
@@ -143,18 +144,28 @@ def test_Qt_QtQml(pyi_builder, QtPyLib):
     )
 
 
-@pytest.mark.parametrize(
-    'QtPyLib', [
-        qt_param('PyQt5'),
-        qt_param('PyQt6'),
-        qt_param('PySide2', marks=xfail(is_win, reason='PySide2 wheels on Windows do not include SSL DLLs.')),
-        qt_param('PySide6', marks=xfail(is_win, reason='PySide6 wheels on Windows do not include SSL DLLs.')),
-    ]
-)
+@QtPyLibs
 def test_Qt_QtNetwork_SSL_support(pyi_builder, QtPyLib):
+    # Skip the test if QtNetwork does not support SSL (e.g., due to lack of compatible OpenSSL shared library on the
+    # test system).
+    @isolated.decorate
+    def check_ssl_support(package):
+        import sys
+        import importlib
+        QtCore = importlib.import_module('.QtCore', package)
+        QtNetwork = importlib.import_module('.QtNetwork', package)
+        app = QtCore.QCoreApplication(sys.argv)  # noqa: F841
+        return QtNetwork.QSslSocket.supportsSsl()
+
+    if not check_ssl_support(QtPyLib):
+        pytest.skip('QtNetwork does not support SSL on this platform.')
+
     pyi_builder.test_source(
         """
+        import sys
+        from {0}.QtCore import QCoreApplication
         from {0}.QtNetwork import QSslSocket
+        app = QCoreApplication(sys.argv)
         assert QSslSocket.supportsSsl()
         """.format(QtPyLib), **USE_WINDOWED_KWARG
     )
@@ -164,11 +175,12 @@ def test_Qt_QtNetwork_SSL_support(pyi_builder, QtPyLib):
 def test_Qt_QTranslate(pyi_builder, QtPyLib):
     pyi_builder.test_source(
         """
+        import sys
         from {0}.QtWidgets import QApplication
         from {0}.QtCore import QTranslator, QLocale, QLibraryInfo
 
         # Initialize Qt default translations
-        app = QApplication([])
+        app = QApplication(sys.argv)
         translator = QTranslator()
         locale = QLocale('de_DE')
         if hasattr(QLibraryInfo, 'path'):
@@ -208,7 +220,7 @@ def test_Qt_Ui_file(tmpdir, pyi_builder, data_dir, QtPyLib):
         is_qt6 = '{0}' in {{'PyQt6', 'PySide6'}}
         is_pyqt = '{0}' in {{'PyQt5', 'PyQt6'}}
 
-        app = QApplication([])
+        app = QApplication(sys.argv)
 
         # In Qt6, QtQuick supports multiple render APIs and automatically selects one.
         # However, QtQuickWidgets.QQuickWidget that is used by the test UI file supports only OpenGL,
@@ -263,23 +275,57 @@ def test_Qt_Ui_file(tmpdir, pyi_builder, data_dir, QtPyLib):
 @skipif(os.environ.get('APPVEYOR') == 'True', reason='The Appveyor OS is incompatible with PyQt.Qt.')
 @requires('PyQt5')
 @pytest.mark.skipif(
-    is_module_satisfies('PyQt5 == 5.11.3') and is_darwin,
+    check_requirement('PyQt5 == 5.11.3') and is_darwin,
     reason='This version of the OS X wheel does not include QWebEngine.'
 )
 def test_PyQt5_Qt(pyi_builder):
     pyi_builder.test_source('from PyQt5.Qt import QLibraryInfo', **USE_WINDOWED_KWARG)
 
 
+# QtWebEngine tests
+
+
+# On linux systems with glibc >= 2.34, QtWebEngine helper process crashes with SIGSEGV due to use of `clone3` syscall,
+# which is incompatible with chromium sandbox (see QTBUG-96214). The issue was fixed in Qt5 5.15.7, however even the
+# latest PyPI wheels of PySide2 (5.15.2.1) and PyQt5/PyQtWebEngine (5.15.6) still seem to ship Qt5 5.15.2 (which was
+# probably last publicly available linux build from the Qt itself). If we encounter incompatible combination of
+# glibc and Qt5 (for example, using PyPI wheels under Ubuntu 22.04), we disable the sandbox, which allows us to perform
+# basic functionality test.
+def _disable_qtwebengine_sandbox(qt_flavor):
+    if is_linux:
+        import platform
+
+        # Check glibc version
+        libc_name, libc_version = platform.libc_ver()
+        if libc_name != 'glibc':
+            return False
+        try:
+            libc_version = [int(v) for v in libc_version.split('.')]
+        except Exception:
+            return False
+        if libc_version < [2, 34]:
+            return False
+
+        # Check Qt version
+        qt_info = get_qt_library_info(qt_flavor)
+        if qt_info.version and qt_info.version >= [5, 15, 7]:
+            return False
+
+        # Incompatible glibc and Qt5 version
+        return True
+
+    return False
+
+
 # Run the the QtWebEngineWidgets test for chosen Qt-based package flavor.
 def _test_Qt_QtWebEngineWidgets(pyi_builder, qt_flavor):
-    if is_darwin:
-        # QtWebEngine on Mac OS only works with a onedir build -- onefile builds do not work.
-        # Skip the test execution for onefile builds.
-        if pyi_builder._mode != 'onedir':
-            pytest.skip('QtWebEngine on macOS is supported only in onedir mode.')
-
     source = """
         import sys
+
+        # Disable QtWebEngine/chromium sanbox, if necessary
+        if {1}:
+            import os
+            os.environ['QTWEBENGINE_DISABLE_SANDBOX'] = '1'
 
         from {0}.QtWidgets import QApplication
         from {0}.QtWebEngineWidgets import QWebEngineView
@@ -302,7 +348,7 @@ def _test_Qt_QtWebEngineWidgets(pyi_builder, qt_flavor):
             </html>
         '''
 
-        app = QApplication([])
+        app = QApplication(sys.argv)
 
         class JSResultTester:
 
@@ -345,21 +391,20 @@ def _test_Qt_QtWebEngineWidgets(pyi_builder, qt_flavor):
         else:
             res = app.exec_()
         sys.exit(res)
-        """.format(qt_flavor)
+        """.format(qt_flavor, _disable_qtwebengine_sandbox(qt_flavor))
 
     pyi_builder.test_source(source, **USE_WINDOWED_KWARG)
 
 
 # Run the the QtWebEngineQuick test for chosen Qt-based package flavor.
 def _test_Qt_QtWebEngineQuick(pyi_builder, qt_flavor):
-    if is_darwin:
-        # QtWebEngine on Mac OS only works with a onedir build -- onefile builds do not work.
-        # Skip the test execution for onefile builds.
-        if pyi_builder._mode != 'onedir':
-            pytest.skip('QtWebEngine on macOS is supported only in onedir mode.')
-
     source = """
         import sys
+
+        # Disable QtWebEngine/chromium sanbox, if necessary
+        if {1}:
+            import os
+            os.environ['QTWEBENGINE_DISABLE_SANDBOX'] = '1'
 
         from {0}.QtGui import QGuiApplication
         from {0}.QtQml import QQmlApplicationEngine
@@ -372,7 +417,7 @@ def _test_Qt_QtWebEngineQuick(pyi_builder, qt_flavor):
             from {0}.QtWebEngine import QtWebEngine as QtWebEngineQuick
         QtWebEngineQuick.initialize()
 
-        app = QGuiApplication([])
+        app = QGuiApplication(sys.argv)
         engine = QQmlApplicationEngine()
         engine.loadData(b'''
             import QtQuick 2.0
@@ -418,7 +463,7 @@ def _test_Qt_QtWebEngineQuick(pyi_builder, qt_flavor):
             res = app.exec_()
         del engine
         sys.exit(res)
-        """.format(qt_flavor)
+        """.format(qt_flavor, _disable_qtwebengine_sandbox(qt_flavor))
 
     pyi_builder.test_source(source, **USE_WINDOWED_KWARG)
 
@@ -453,18 +498,45 @@ def test_Qt_QtWebEngineWidgets_PyQt6(pyi_builder):
 
 @requires('PyQt6 >= 6.2.2')
 @requires('PyQt6-WebEngine')  # NOTE: base Qt6 must be 6.2.2 or newer, QtWebEngine can be older
+@pytest.mark.skipif(
+    check_requirement('PyQt6 == 6.6.0'),
+    reason='PyQt6 6.6.0 PyPI wheels are missing Qt6WebChannelQuick shared library.'
+)
 def test_Qt_QtWebEngineQuick_PyQt6(pyi_builder):
     _test_Qt_QtWebEngineQuick(pyi_builder, 'PyQt6')
 
 
 @requires('PySide6 >= 6.2.2')
+@pytest.mark.skipif(
+    check_requirement('PySide6 == 6.5.0') and is_win,
+    reason='PySide6 6.5.0 PyPI wheels for Windows are missing opengl32sw.dll.'
+)
 def test_Qt_QtWebEngineWidgets_PySide6(pyi_builder):
     _test_Qt_QtWebEngineWidgets(pyi_builder, 'PySide6')
 
 
 @requires('PySide6 >= 6.2.2')
+@pytest.mark.skipif(
+    check_requirement('PySide6 == 6.5.0') and is_win,
+    reason='PySide6 6.5.0 PyPI wheels for Windows are missing opengl32sw.dll.'
+)
 def test_Qt_QtWebEngineQuick_PySide6(pyi_builder):
     _test_Qt_QtWebEngineQuick(pyi_builder, 'PySide6')
+
+
+# QtMultimedia test that triggers error when the module's plugins are missing (#7352).
+@QtPyLibs
+def test_Qt_QtMultimedia_player_init(pyi_builder, QtPyLib):
+    pyi_builder.test_source(
+        """
+        import sys
+
+        from {0} import QtCore, QtMultimedia
+
+        app = QtCore.QCoreApplication(sys.argv)
+        player = QtMultimedia.QMediaPlayer(app)
+        """.format(QtPyLib), **USE_WINDOWED_KWARG
+    )
 
 
 # QtMultimedia test that also uses PySide's true_property, which triggers hidden dependency on QtMultimediaWidgets
@@ -480,9 +552,91 @@ def test_Qt_QtWebEngineQuick_PySide6(pyi_builder):
 def test_Qt_QtMultimedia_with_true_property(pyi_builder, QtPyLib):
     pyi_builder.test_source(
         """
+        import sys
         from {0} import QtCore, QtMultimedia
         from __feature__ import true_property
 
-        app = QtCore.QCoreApplication()
+        app = QtCore.QCoreApplication(sys.argv)
         """.format(QtPyLib), **USE_WINDOWED_KWARG
     )
+
+
+# In PySide6 >= 6.4.0, we need to collect `PySide6.support.deprecated` module for logical operators between Qt key and
+# key modifier enums to work. See #7249.
+@requires('PySide6')
+def test_Qt_PySide6_key_enums(pyi_builder):
+    pyi_builder.test_source(
+        """
+        from PySide6 import QtCore
+        key = QtCore.Qt.AltModifier | QtCore.Qt.Key_D
+        """
+    )
+
+
+# Basic import tests for all Qt-bindings-provided modules. Each module should be importable on its own, which requires a
+# corresponding hook that performs recursive analysis of the module in order to collect all of its dependencies.
+#
+# Due to the sheer amount of tests, they are ran only in onedir mode.
+
+
+# Helper that lists all Qt* modules from a Qt-based package. Ran isolated to prevent import affecting the main process.
+@isolated.decorate
+def _list_all_qt_submodules(package_name):
+    import importlib
+    import pkgutil
+
+    try:
+        package = importlib.import_module(package_name)
+    except Exception:
+        return []
+
+    return sorted([
+        module_info.name for module_info in pkgutil.iter_modules(package.__path__) if module_info.name.startswith("Qt")
+    ])
+
+
+def _test_qt_bindings_import(bindings, module, pyi_builder_onedir):
+    # Check if particular module is importable. This guards against errors if a module is unavailable in particular
+    # version of the bindings, or if it is provided by an extra package that is not installed.
+    modname = bindings + "." + module
+    if not can_import_module(modname):
+        pytest.skip(f"Module '{modname}' cannot be imported.")
+    # Basic import test
+    # The import of the tested module is preceeded by import of the QtCore. This seems to prevent segfaults on macOS
+    # with certain modules in the frozen test (QtSensors in PySide2 and PyQt5, QtWebEngine* in PySide6, etc.). The
+    # segfaults occur when trying to resolve bundle identifier, which may be related to PyInstaller failing to
+    # preserve the .framework bundle structure for Qt shared libraries (and importing QtCore somehow works around
+    # that). Since QtCore is practically a dependency of all other Qt modules, its import does not affect the results
+    # of the test much.
+    pyi_builder_onedir.test_source(f"""
+        import {bindings}.QtCore
+        import {modname}
+        """)
+
+
+@importorskip('PySide2')
+@pytest.mark.parametrize('module', _list_all_qt_submodules('PySide2'))
+@pytest.mark.parametrize('pyi_builder', ['onedir'], indirect=True)
+def test_qt_module_import_PySide2(module, pyi_builder):
+    _test_qt_bindings_import("PySide2", module, pyi_builder)
+
+
+@importorskip('PySide6')
+@pytest.mark.parametrize('module', _list_all_qt_submodules('PySide6'))
+@pytest.mark.parametrize('pyi_builder', ['onedir'], indirect=True)
+def test_qt_module_import_PySide6(module, pyi_builder):
+    _test_qt_bindings_import("PySide6", module, pyi_builder)
+
+
+@importorskip('PyQt5')
+@pytest.mark.parametrize('module', _list_all_qt_submodules('PyQt5'))
+@pytest.mark.parametrize('pyi_builder', ['onedir'], indirect=True)
+def test_qt_module_import_PyQt5(module, pyi_builder):
+    _test_qt_bindings_import("PyQt5", module, pyi_builder)
+
+
+@importorskip('PyQt6')
+@pytest.mark.parametrize('module', _list_all_qt_submodules('PyQt6'))
+@pytest.mark.parametrize('pyi_builder', ['onedir'], indirect=True)
+def test_qt_module_import_PyQt6(module, pyi_builder):
+    _test_qt_bindings_import("PyQt6", module, pyi_builder)

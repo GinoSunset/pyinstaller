@@ -1,6 +1,6 @@
 /*
  * ****************************************************************************
- * Copyright (c) 2013-2022, PyInstaller Development Team.
+ * Copyright (c) 2013-2023, PyInstaller Development Team.
  *
  * Distributed under the terms of the GNU General Public License (version 2
  * or later) with exception for distributing the bootloader.
@@ -245,9 +245,6 @@ void mbvs(const char *fmt, ...);
     #define PYI_CURDIRSTR  "."
 #endif
 
-/* Strings are usually terminated by this character. */
-#define PYI_NULLCHAR       '\0'
-
 /* File seek and tell with large (64-bit) offsets */
 #if defined(_WIN32) && defined(_MSC_VER)
     #define pyi_fseek _fseeki64
@@ -255,6 +252,11 @@ void mbvs(const char *fmt, ...);
 #else
     #define pyi_fseek fseeko
     #define pyi_ftell ftello
+#endif
+
+/* MSVC provides _stricmp() in-lieu of POSIX strcasecmp() */
+#if defined(_WIN32) && defined(_MSC_VER)
+    #define strcasecmp(string1, string2) _stricmp(string1, string2)
 #endif
 
 /* Byte-order conversion macros */
@@ -285,8 +287,5 @@ void mbvs(const char *fmt, ...);
     #endif
     #define pyi_be32toh(x) ntohl(x)
 #endif /* ifdef _WIN32 */
-
-/* Saved LC_CTYPE locale */
-extern char *saved_locale;
 
 #endif  /* PYI_GLOBAL_H */

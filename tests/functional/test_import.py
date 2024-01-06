@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #-----------------------------------------------------------------------------
-# Copyright (c) 2005-2022, PyInstaller Development Team.
+# Copyright (c) 2005-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -156,7 +156,8 @@ def test_module_with_coding_utf8(pyi_builder):
     pyi_builder.test_source("import module_with_coding_utf8")
 
 
-# Test that our FrozenImporter's get_source() method can load source files with utf-8 emoji characters. See issue #6143.
+# Test that our PyiFrozenImporter's get_source() method can load source files with utf-8 emoji characters.
+# See issue #6143.
 def test_source_utf8_emoji(pyi_builder):
     # Collect the module's source as data file
     datas = os.pathsep.join((os.path.join(_MODULES_DIR, 'module_with_utf8_emoji.py'), os.curdir))
@@ -424,7 +425,8 @@ def test_ctypes_cdll_builtin_extension(pyi_builder):
 
 
 def test_egg_unzipped(pyi_builder):
-    pathex = os.path.join(_MODULES_DIR, 'pyi_egg_unzipped.egg')
+    pathex = os.path.join(_MODULES_DIR, 'pyi_test_egg', 'pyi_egg_unzipped.egg')
+    hooks_dir = os.path.join(_MODULES_DIR, 'pyi_test_egg', 'hooks')
     pyi_builder.test_source(
         """
         # This code is part of the package for testing eggs in `PyInstaller`.
@@ -445,33 +447,60 @@ def test_egg_unzipped(pyi_builder):
 
         print('Okay.')
         """,
-        pyi_args=['--paths', pathex],
+        pyi_args=['--paths', pathex, '--additional-hooks-dir', hooks_dir],
     )
 
 
-def test_egg_zipped(pyi_builder):
-    pathex = os.path.join(_MODULES_DIR, 'pyi_egg_zipped.egg')
+def test_egg_unzipped_metadata_pkg_resources(pyi_builder):
+    pathex = os.path.join(_MODULES_DIR, 'pyi_test_egg', 'pyi_egg_unzipped.egg')
+    hooks_dir = os.path.join(_MODULES_DIR, 'pyi_test_egg', 'hooks')
     pyi_builder.test_source(
         """
-        # This code is part of the package for testing eggs in `PyInstaller`.
-        import os
         import pkg_resources
 
-        # Test ability to load resource.
-        expected_data = 'This is data file for `zipped`.'.encode('ascii')
-        t = pkg_resources.resource_string('zipped_egg', 'data/datafile.txt')
-        print('Resource: %s' % t)
-        t_filename = pkg_resources.resource_filename('zipped_egg', 'data/datafile.txt')
-        print('Resource filename: %s' % t_filename)
-        assert t.rstrip() == expected_data
+        # Metadata should be automatically collected due to pkg_resources.get_distribution() call with literal argument
+        # (which is picked up by PyInstaller's bytecode analysis).
+        dist = pkg_resources.get_distribution('pyi_egg_unzipped')
+        print(f"dist: {dist!r}")
 
-        # Test ability that module from .egg is able to load resource.
-        import zipped_egg
-        assert zipped_egg.data == expected_data
-
-        print('Okay.')
+        # Version is taken from metadata
+        assert dist.version == '0.1', f"Unexpected version {dist.version!r}"
+        # Project name is taken from egg name
+        assert dist.project_name == 'pyi-egg-unzipped', f"Unexpected project name {dist.project_name!r}"
         """,
-        pyi_args=['--paths', pathex],
+        pyi_args=['--paths', pathex, '--additional-hooks-dir', hooks_dir],
+    )
+
+
+def test_egg_unzipped_metadata_importlib_metadata(pyi_builder):
+    pathex = os.path.join(_MODULES_DIR, 'pyi_test_egg', 'pyi_egg_unzipped.egg')
+    hooks_dir = os.path.join(_MODULES_DIR, 'pyi_test_egg', 'hooks')
+    pyi_builder.test_source(
+        """
+        try:
+            import importlib_metadata
+        except ModuleNotFoundError:
+            import importlib.metadata as importlib_metadata
+
+        # Metadata should be automatically collected due to importlib_metadata.version() call with literal argument
+        # (which is picked up by PyInstaller's bytecode analysis).
+        version = importlib_metadata.version('pyi_egg_unzipped')
+        print(f"version: {version!r}")
+        assert version == '0.1', f"Unexpected version {version!r}"
+
+        # NOTE: in contrast to pkg_resources, importlib_metadata seems to read the name from metadata instead of
+        # deriving it from egg directory name.
+        metadata = importlib_metadata.metadata('pyi_egg_unzipped')
+        print(f"metadata: {metadata!r}")
+        assert metadata['Name'] == 'unzipped-egg', f"Unexpected Name {metadata['Name']!r}"
+        assert metadata['Version'] == '0.1', f"Unexpected Version {metadata['Version']!r}"
+
+        dist = importlib_metadata.distribution('pyi_egg_unzipped')
+        print(f"dist: {dist!r}")
+        assert dist.name == 'unzipped-egg', f"Unexpected name {dist.name!r}"
+        assert dist.version == '0.1', f"Unexpected version {dist.version!r}"
+        """,
+        pyi_args=['--paths', pathex, '--additional-hooks-dir', hooks_dir],
     )
 
 

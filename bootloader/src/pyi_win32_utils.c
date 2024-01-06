@@ -1,6 +1,6 @@
 /*
  * ****************************************************************************
- * Copyright (c) 2013-2022, PyInstaller Development Team.
+ * Copyright (c) 2013-2023, PyInstaller Development Team.
  *
  * Distributed under the terms of the GNU General Public License (version 2
  * or later) with exception for distributing the bootloader.
@@ -100,9 +100,8 @@ pyi_win32_wcs_to_mbs(const wchar_t *wstr)
     DWORD len, ret;
     char * str;
 
-    /* NOTE: setlocale hysterics are not needed on Windows - this function
-     *  has an explicit codepage parameter. CP_ACP means "current ANSI codepage"
-     *  which is set in the "Language for Non-Unicode Programs" control panel setting. */
+    /* NOTE: CP_ACP means "current ANSI codepage" which is set in the
+     * "Language for Non-Unicode Programs" control panel setting. */
 
     /* Get buffer size by passing NULL and 0 for output arguments */
     len = WideCharToMultiByte(CP_ACP,  /* CodePage */
@@ -183,39 +182,6 @@ err:
     return NULL;
 }
 
-/* Convert elements of wargv back from UTF-8. Used when calling
- *  PySys_SetArgv on Python 3.
- */
-
-wchar_t **
-pyi_win32_wargv_from_utf8(int argc, char **argv)
-{
-    int i, j;
-    wchar_t ** wargv;
-
-    wargv = (wchar_t **)calloc(argc + 1, sizeof(wchar_t *));
-    if (wargv == NULL) {
-        return NULL;
-    };
-
-    for (i = 0; i < argc; i++) {
-        wargv[i] = pyi_win32_utils_from_utf8(NULL, argv[i], 0);
-
-        if (NULL == wargv[i]) {
-            goto err;
-        }
-    }
-    wargv[argc] = NULL;
-
-    return wargv;
-err:
-
-    for (j = 0; j <= i; j++) {
-        free(wargv[j]);
-    }
-    free(wargv);
-    return NULL;
-}
 
 /*
  * Encode wchar_t (UTF16) into char (UTF8).
@@ -519,6 +485,42 @@ int pyi_win32_is_drive_root(const wchar_t *path)
 
     return 0;
 }
+
+#if !defined(WINDOWED)
+
+/* Helper that hides or minimizes the console window
+ * if it is owned by the process. The show_cmd argument
+ * is passed to the ShowWindow call, and should be
+ * either SW_HIDE or SW_SHOWMINNOACTIVE.
+ */
+static void pyi_win32_adjust_console(int show_cmd)
+{
+    HWND hConsole = GetConsoleWindow();
+    if (hConsole != NULL) {
+        DWORD dwProcessId = GetCurrentProcessId();
+        DWORD dwConsoleProcessId;
+
+        if (GetWindowThreadProcessId(hConsole, &dwConsoleProcessId) == 0) {
+            return;  /* Window handle is invalid */
+        }
+
+        if (dwProcessId == dwConsoleProcessId) {
+            ShowWindow(hConsole, show_cmd);
+        }
+    }
+}
+
+void pyi_win32_hide_console()
+{
+    pyi_win32_adjust_console(SW_HIDE);
+}
+
+void pyi_win32_minimize_console()
+{
+    pyi_win32_adjust_console(SW_SHOWMINNOACTIVE);
+}
+
+#endif
 
 
 #endif  /* _WIN32 */

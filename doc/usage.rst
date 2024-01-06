@@ -88,9 +88,9 @@ Or in Windows, use the little-known BAT file line continuation::
 
     pyinstaller --noconfirm --log-level=WARN ^
         --onefile --nowindow ^
-        --add-data="README;." ^
-        --add-data="image1.png;img" ^
-        --add-binary="libfoo.so;lib" ^
+        --add-data="README:." ^
+        --add-data="image1.png:img" ^
+        --add-binary="libfoo.so:lib" ^
         --hidden-import=secret1 ^
         --hidden-import=secret2 ^
         --icon=..\MLNMFLCN.ICO ^
@@ -194,26 +194,6 @@ right to left.
 For example, to exclude Qt5 DLLs from the PySide2 package, use
 ``--upx-exclude "Qt*.dll"``, and to exclude the python extensions
 from the PySide2 package, use ``--upx-exclude "PySide2\*.pyd"``.
-
-
-.. _encrypting python bytecode:
-
-Encrypting Python Bytecode
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-To encrypt the Python bytecode modules stored in the bundle,
-pass the :option:`--key`\ =\ *key-string*  argument on
-the command line.
-
-For this to work, you need to run::
-
-    pip install pyinstaller[encryption]
-
-The *key-string* is a string of 16 characters which is used to
-encrypt each file of Python byte-code before it is stored in
-the archive inside the executable file.
-
-This feature uses the tinyaes_ module internally for the encryption.
 
 
 .. _splash screen:
@@ -612,7 +592,8 @@ Building 32-bit Apps in macOS
           on modern versions of macOS, see :ref:`here <macos multi-arch support>`).
           However, PyInstaller still supports building 32-bit bootloader,
           and 32-bit/64-bit Python installers are still available from
-          python.org for (some) versions of Python 3.7.
+          python.org for (some) versions of Python 3.7 which PyInstaller dropped
+          support for in v6.0.
 
 Older versions of macOS supported both 32-bit and 64-bit executables.
 PyInstaller builds an app using the the word-length of the Python used to execute it.

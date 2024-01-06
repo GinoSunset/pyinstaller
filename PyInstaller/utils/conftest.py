@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-# Copyright (c) 2005-2022, PyInstaller Development Team.
+# Copyright (c) 2005-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -13,6 +13,7 @@ import copy
 import glob
 import logging
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -37,14 +38,12 @@ from PyInstaller import __main__ as pyi_main  # noqa: E402
 from PyInstaller import configure  # noqa: E402
 from PyInstaller.compat import architecture, is_darwin, is_win  # noqa: E402
 from PyInstaller.depend.analysis import initialize_modgraph  # noqa: E402
-from PyInstaller.utils.cliutils import archive_viewer  # noqa: E402
+from PyInstaller.archive.readers import pkg_archive_contents  # noqa: E402
 from PyInstaller.utils.tests import gen_sourcefile  # noqa: E402
 from PyInstaller.utils.win32 import winutils  # noqa: E402
 
 # Timeout for running the executable. If executable does not exit in this time, it is interpreted as a test failure.
 _EXE_TIMEOUT = 3 * 60  # In sec.
-# Number of retries we should attempt if the executable times out.
-_MAX_RETRIES = 2
 # All currently supported platforms
 SUPPORTED_OSES = {"darwin", "linux", "win32"}
 # Have pyi_builder fixure clean-up the temporary directories of successful tests. Controlled by environment variable.
@@ -354,11 +353,7 @@ class AppBuilder:
         args = [prog_name] + args
         # Using sys.stdout/sys.stderr for subprocess fixes printing messages in Windows command prompt. Py.test is then
         # able to collect stdout/sterr messages and display them if a test fails.
-        for _ in range(_MAX_RETRIES):
-            retcode = self._run_executable_(args, exe_path, prog_env, prog_cwd, runtime)
-            if retcode != 1:  # retcode == 1 means a timeout
-                break
-        return retcode
+        return self._run_executable_(args, exe_path, prog_env, prog_cwd, runtime)
 
     def _run_executable_(self, args, exe_path, prog_env, prog_cwd, runtime):
         process = psutil.Popen(
@@ -431,7 +426,7 @@ class AppBuilder:
 
         pyi_args = [self.script] + default_args + args
         # TODO: fix return code in running PyInstaller programmatically.
-        PYI_CONFIG = configure.get_config(upx_dir=None)
+        PYI_CONFIG = configure.get_config()
         # Override CACHEDIR for PyInstaller and put it into self.tmpdir
         PYI_CONFIG['cachedir'] = str(self._tmpdir)
 
@@ -447,9 +442,8 @@ class AppBuilder:
         :return: True if .toc files match
         """
         print('EXECUTING MATCHING:', toc_log)
-        fname_list = archive_viewer.get_archive_content(exe)
-        fname_list = [fn for fn in fname_list]
-        with open(toc_log, 'r') as f:
+        fname_list = pkg_archive_contents(exe)
+        with open(toc_log, 'r', encoding='utf-8') as f:
             pattern_list = eval(f.read())
         # Alphabetical order of patterns.
         pattern_list.sort()
@@ -548,7 +542,7 @@ def compiled_dylib(tmpdir, request):
         elif is_darwin:
             tmp_data_dir = tmp_data_dir.join('ctypes_dylib.dylib')
             # On Mac OS X we need to detect architecture - 32 bit or 64 bit.
-            arch = 'i386' if architecture == '32bit' else 'x86_64'
+            arch = 'arm64' if platform.machine() == 'arm64' else 'i386' if architecture == '32bit' else 'x86_64'
             cmd = (
                 'gcc -arch ' + arch + ' -Wall -dynamiclib '
                 'ctypes_dylib.c -o ctypes_dylib.dylib -headerpad_max_install_names'

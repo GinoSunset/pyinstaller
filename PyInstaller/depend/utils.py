@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #-----------------------------------------------------------------------------
-# Copyright (c) 2005-2022, PyInstaller Development Team.
+# Copyright (c) 2005-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -394,27 +394,3 @@ def load_ldconfig_cache():
         # Use the first entry.
         if name not in LDCONFIG_CACHE:
             LDCONFIG_CACHE[name] = path
-
-
-def get_path_to_egg(path):
-    """
-    Return the path to the python egg file, if the given path points to a file inside (or directly to) an egg.
-    Return `None` otherwise.
-    """
-    # This assumes that eggs are not nested.
-    # TODO: add support for unpacked eggs and for new .whl packages.
-    lastpath = None  # marker to stop recursion
-    while path and path != lastpath:
-        if os.path.splitext(path)[1].lower() == ".egg":
-            if os.path.isfile(path) or os.path.isdir(path):
-                return path
-        lastpath = path
-        path = os.path.dirname(path)
-    return None
-
-
-def is_path_to_egg(path):
-    """
-    Check if the given path points to a file inside (or directly to) a python egg file.
-    """
-    return get_path_to_egg(path) is not None

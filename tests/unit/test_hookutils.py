@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-# Copyright (c) 2005-2022, PyInstaller Development Team.
+# Copyright (c) 2005-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -11,15 +11,13 @@
 
 import os
 import pytest
-import pathlib
 import shutil
-from os.path import join
 import re
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, \
     get_module_file_attribute, remove_prefix, remove_suffix, \
     remove_file_extension, is_module_or_submodule, \
-    is_module_satisfies, _copy_metadata_dest
+    check_requirement
 from PyInstaller.compat import exec_python, is_win
 from PyInstaller import log as logging
 
@@ -108,9 +106,6 @@ TEST_MOD_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hookut
 
 @pytest.fixture
 def mod_list(monkeypatch):
-    # Add 'hookutils_files' to sys.path (so ``is_package`` can find it) and to
-    # ``pathex`` (so code run in a subprocess can find it).
-    monkeypatch.setattr('PyInstaller.config.CONF', {'pathex': [TEST_MOD_PATH]})
     monkeypatch.syspath_prepend(TEST_MOD_PATH)
     # Use the hookutils_test_files package for testing.
     return collect_submodules(TEST_MOD)
@@ -251,9 +246,9 @@ def test_is_module_or_submodule():
     assert not is_module_or_submodule('foo', 'foo.bar')
 
 
-def test_is_module_satisfies_package_not_installed():
-    assert is_module_satisfies('pytest')
-    assert not is_module_satisfies('magnumopus-no-package-test-case')
+def test_check_requirement_package_not_installed():
+    assert check_requirement('pytest')
+    assert not check_requirement('magnumopus-no-package-test-case')
 
 
 # An error should be raised if a module, not a package, was passed.
@@ -275,55 +270,79 @@ def test_collect_data_module():
                 'dynamiclib.dll',
                 'dynamiclib.dylib',
                 'nine.dat',
-                join('py_files_not_in_package', 'data', 'eleven.dat'),
-                join('py_files_not_in_package', 'ten.dat'),
+                os.path.join('py_files_not_in_package', 'data', 'eleven.dat'),
+                os.path.join('py_files_not_in_package', 'ten.dat'),
                 # Not backwards! On Windows, ``.so`` files are just data and vice versa.
                 'pyextension.so' if is_win else 'pyextension.pyd',
-                join('subpkg', 'thirteen.txt'),
-            )
+                os.path.join('subpkg', 'thirteen.txt'),
+            ),
         ),
         # Test collecting from a subpackage.
-        ([TEST_MOD + '.subpkg'], {}, (join('subpkg', 'thirteen.txt'),)),
-        ([TEST_MOD], dict(include_py_files=True, excludes=['**/__pycache__']), (
-            '__init__.py',
-            'dynamiclib.dll',
-            'dynamiclib.dylib',
-            'nine.dat',
-            join('py_files_not_in_package', 'data', 'eleven.dat'),
-            join('py_files_not_in_package', 'one.py'),
-            join('py_files_not_in_package', 'sub_pkg', '__init__.py'),
-            join('py_files_not_in_package', 'sub_pkg', 'three.py'),
-            join('py_files_not_in_package', 'ten.dat'),
-            'pyextension.pyd',
-            'pyextension.so',
-            join('raises_error_on_import_1', '__init__.py'),
-            join('raises_error_on_import_1', 'foo.py'),
-            join('raises_error_on_import_2', '__init__.py'),
-            join('raises_error_on_import_2', 'foo.py'),
-            join('subpkg', '__init__.py'),
-            join('subpkg', 'thirteen.txt'),
-            join('subpkg', 'twelve.py'),
-            'two.py',
-        )),
-        ([TEST_MOD], dict(excludes=['py_files_not_in_package', '**/__pycache__']), (
-            'dynamiclib.dll',
-            'dynamiclib.dylib',
-            'nine.dat',
-            'pyextension.so' if is_win else 'pyextension.pyd',
-            join('subpkg', 'thirteen.txt'),
-        )),
-        ([TEST_MOD], dict(includes=['**/*.dat', '**/*.txt']), (
-            'nine.dat',
-            join('py_files_not_in_package', 'data', 'eleven.dat'),
-            join('py_files_not_in_package', 'ten.dat'),
-            join('subpkg', 'thirteen.txt'),
-        )),
-        ([TEST_MOD], dict(includes=['*.dat']), ('nine.dat',)),
-        ([TEST_MOD], dict(subdir="py_files_not_in_package", excludes=['**/__pycache__']), (
-            join('py_files_not_in_package', 'data', 'eleven.dat'),
-            join('py_files_not_in_package', 'ten.dat'),
-        )),
-    ],  # yapf: disable
+        (
+            [TEST_MOD + '.subpkg'],
+            {},
+            (os.path.join('subpkg', 'thirteen.txt'),),
+        ),
+        (
+            [TEST_MOD],
+            dict(include_py_files=True, excludes=['**/__pycache__']),
+            (
+                '__init__.py',
+                'dynamiclib.dll',
+                'dynamiclib.dylib',
+                'nine.dat',
+                os.path.join('py_files_not_in_package', 'data', 'eleven.dat'),
+                os.path.join('py_files_not_in_package', 'one.py'),
+                os.path.join('py_files_not_in_package', 'sub_pkg', '__init__.py'),
+                os.path.join('py_files_not_in_package', 'sub_pkg', 'three.py'),
+                os.path.join('py_files_not_in_package', 'ten.dat'),
+                # Not backwards! On Windows, ``.so`` files are just data and vice versa.
+                'pyextension.so' if is_win else 'pyextension.pyd',
+                os.path.join('raises_error_on_import_1', '__init__.py'),
+                os.path.join('raises_error_on_import_1', 'foo.py'),
+                os.path.join('raises_error_on_import_2', '__init__.py'),
+                os.path.join('raises_error_on_import_2', 'foo.py'),
+                os.path.join('subpkg', '__init__.py'),
+                os.path.join('subpkg', 'thirteen.txt'),
+                os.path.join('subpkg', 'twelve.py'),
+                'two.py',
+            ),
+        ),
+        (
+            [TEST_MOD],
+            dict(excludes=['py_files_not_in_package', '**/__pycache__']),
+            (
+                'dynamiclib.dll',
+                'dynamiclib.dylib',
+                'nine.dat',
+                'pyextension.so' if is_win else 'pyextension.pyd',
+                os.path.join('subpkg', 'thirteen.txt'),
+            ),
+        ),
+        (
+            [TEST_MOD],
+            dict(includes=['**/*.dat', '**/*.txt']),
+            (
+                'nine.dat',
+                os.path.join('py_files_not_in_package', 'data', 'eleven.dat'),
+                os.path.join('py_files_not_in_package', 'ten.dat'),
+                os.path.join('subpkg', 'thirteen.txt'),
+            ),
+        ),
+        (
+            [TEST_MOD],
+            dict(includes=['*.dat']),
+            ('nine.dat',),
+        ),
+        (
+            [TEST_MOD],
+            dict(subdir="py_files_not_in_package", excludes=['**/__pycache__']),
+            (
+                os.path.join('py_files_not_in_package', 'data', 'eleven.dat'),
+                os.path.join('py_files_not_in_package', 'ten.dat'),
+            ),
+        ),
+    ],
     ids=['package', 'subpackage', 'package with py files', 'excludes', '** includes', 'includes', 'subdir']
 )
 def data_lists(monkeypatch, request):
@@ -349,8 +368,8 @@ def data_lists(monkeypatch, request):
 def test_collect_data_all_included(data_lists):
     subfiles, src, dst = data_lists
     # Check the source and dest lists against the correct values in subfiles.
-    src_compare = tuple([join(TEST_MOD_PATH, TEST_MOD, subpath) for subpath in subfiles])
-    dst_compare = [os.path.dirname(join(TEST_MOD, subpath)) for subpath in subfiles]
+    src_compare = tuple([os.path.join(TEST_MOD_PATH, TEST_MOD, subpath) for subpath in subfiles])
+    dst_compare = [os.path.dirname(os.path.join(TEST_MOD, subpath)) for subpath in subfiles]
     dst_compare.sort()
     dst_compare = tuple(dst_compare)
     assert src == src_compare
@@ -361,35 +380,3 @@ def test_collect_data_all_included(data_lists):
 def test_get_module_file_attribute_non_exist_module():
     with pytest.raises(ImportError):
         get_module_file_attribute('pyinst_nonexisting_module_name')
-
-
-@pytest.mark.parametrize("egg_path,name,target", [
-    # Something installed via `pip install -e .`.
-    ("editable/install/CodeChat.egg-info",
-     "CodeChat", "CodeChat.egg-info"),
-    # An egg distribution - it's unlikely we'll ever see these now.
-    ("lib/site-packages/pypubsub-3.3.0-py2.7.egg/EGG-INFO",
-     "pypubsub", "pypubsub-3.3.0-py2.7.egg/EGG-INFO"),
-    # A classic wheel-installed distribution.
-    ("lib/site-packages/zest.releaser-6.2.dist-info",
-     "zest.releaser", "zest.releaser-6.2.dist-info"),
-    # Must be tolerant to case and -/_ mismatch.
-    ("/site-packages/importlib_metadata-4.0.1.dist-info",
-     "ImPorTlib-mEtADatA", "importlib_metadata-4.0.1.dist-info")
-])  # yapf: disable
-def test_copy_metadata_dest(egg_path, name, target):
-    """
-    Test choosing dest path for copy_metadata() across distribution types.
-    """
-    # Convert posix style filenames to native paths, i.e. replace '/' with '\' on Windows.
-    egg_path = str(pathlib.PurePath(egg_path))
-    target = str(pathlib.PurePath(target))
-
-    assert _copy_metadata_dest(egg_path, name) == target
-
-
-def test_erroneous_distribution_type():
-    with pytest.raises(RuntimeError, match="Unknown .* type 'foo' from the 'bar' distribution"):
-        _copy_metadata_dest("foo", "bar")
-    with pytest.raises(RuntimeError, match=r"No .* distribution 'foo'\."):
-        _copy_metadata_dest(None, "foo")

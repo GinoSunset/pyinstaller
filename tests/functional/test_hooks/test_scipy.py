@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-# Copyright (c) 2005-2022, PyInstaller Development Team.
+# Copyright (c) 2005-2023, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License (version 2
 # or later) with exception for distributing the bootloader.
@@ -12,10 +12,12 @@
 Functional tests for SciPy.
 """
 
-from PyInstaller.utils.tests import importorskip
+from PyInstaller.compat import is_py312
+from PyInstaller.utils.tests import importorskip, xfail
 
 
 @importorskip('scipy')
+@xfail(is_py312, reason='SciPy is broken with PyInstaller and python 3.12 (#7992).')
 def test_scipy_toplevel(pyi_builder):
     pyi_builder.test_source("""
         import scipy
@@ -23,6 +25,7 @@ def test_scipy_toplevel(pyi_builder):
 
 
 @importorskip('scipy')
+@xfail(is_py312, reason='SciPy is broken with PyInstaller and python 3.12 (#7992).')
 def test_scipy(pyi_builder):
     pyi_builder.test_source(
         """
@@ -45,6 +48,7 @@ def test_scipy(pyi_builder):
 
 
 @importorskip('scipy')
+@xfail(is_py312, reason='SciPy is broken with PyInstaller and python 3.12 (#7992).')
 def test_scipy_special(pyi_builder):
     """
     Test the importability of the `scipy.special` package and related hooks.

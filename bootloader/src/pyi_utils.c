@@ -1,6 +1,6 @@
 /*
  * ****************************************************************************
- * Copyright (c) 2013-2022, PyInstaller Development Team.
+ * Copyright (c) 2013-2023, PyInstaller Development Team.
  *
  * Distributed under the terms of the GNU General Public License (version 2
  * or later) with exception for distributing the bootloader.
@@ -94,20 +94,6 @@ strnlen(const char *str, size_t n)
 {
     const char *stop = (char *)memchr(str, '\0', n);
     return stop ? stop - str : n;
-}
-#endif
-
-// some platforms do not provide strndup
-#ifndef HAVE_STRNDUP
-char *
-strndup(const char * str, size_t n)
-{
-    char *ret = NULL;
-    size_t len = strnlen(str, n);
-    ret = (char *)malloc(len + 1);
-    if (ret == NULL) return NULL;
-    ret[len] = '\0';
-    return (char *)memcpy(ret, str, len);
 }
 #endif
 
@@ -241,8 +227,8 @@ pyi_unsetenv(const char *variable)
 #ifdef _WIN32
 
 /* Resolve the runtime tmpdir path and build nested directories */
-wchar_t
-*pyi_build_temp_folder(char *runtime_tmpdir)
+static wchar_t
+*pyi_build_temp_folder(const char *runtime_tmpdir)
 {
     wchar_t *wruntime_tmpdir;
     wchar_t wruntime_tmpdir_expanded[PATH_MAX];
@@ -296,13 +282,13 @@ wchar_t
 
 /* TODO rename function and revisit */
 int
-pyi_get_temp_path(char *buffer, char *runtime_tmpdir)
+pyi_create_tempdir(char *buffer, const char *runtime_tmpdir)
 {
     int i;
     wchar_t *wchar_ret;
     wchar_t prefix[16];
     wchar_t wchar_buffer[PATH_MAX];
-    char *original_tmpdir;
+    char *original_tmpdir = NULL;
     wchar_t *wruntime_tmpdir_abspath;
     DWORD rc;
 
@@ -396,8 +382,8 @@ pyi_test_temp_path(char *buff)
 }
 
 /* TODO merge this function with windows version. */
-static int
-pyi_get_temp_path(char *buff, char *runtime_tmpdir)
+int
+pyi_create_tempdir(char *buff, const char *runtime_tmpdir)
 {
     if (runtime_tmpdir != NULL) {
       strcpy(buff, runtime_tmpdir);
@@ -439,30 +425,6 @@ pyi_get_temp_path(char *buff, char *runtime_tmpdir)
 
 #endif /* ifdef _WIN32 */
 
-/*
- * Creates a temporany directory if it doesn't exists
- * and properly sets the ARCHIVE_STATUS members.
- */
-int
-pyi_create_temp_path(ARCHIVE_STATUS *status)
-{
-    char *runtime_tmpdir = NULL;
-
-    if (status->has_temp_directory != true) {
-        runtime_tmpdir = pyi_arch_get_option(status, "pyi-runtime-tmpdir");
-        if(runtime_tmpdir != NULL) {
-          VS("LOADER: Found runtime-tmpdir %s\n", runtime_tmpdir);
-        }
-
-        if (!pyi_get_temp_path(status->temppath, runtime_tmpdir)) {
-            FATALERROR("INTERNAL ERROR: cannot create temporary directory!\n");
-            return -1;
-        }
-        /* Set flag that temp directory is created and available. */
-        status->has_temp_directory = true;
-    }
-    return 0;
-}
 
 /* TODO merge unix/win versions of remove_one() and pyi_remove_temp_path() */
 #ifdef _WIN32
@@ -474,14 +436,14 @@ remove_one(wchar_t *wfnm, size_t pos, struct _wfinddata_t wfinfo)
     if (wcscmp(wfinfo.name, L".") == 0  || wcscmp(wfinfo.name, L"..") == 0) {
         return;
     }
-    wfnm[pos] = PYI_NULLCHAR;
+    wfnm[pos] = 0;
     wcscat(wfnm, wfinfo.name);
 
     if ((wfinfo.attrib & _A_SUBDIR)) {
         if (!pyi_win32_is_symlink(wfnm)) {
             /* Use recursion to remove subdirectories. */
             pyi_win32_utils_to_utf8(fnm, wfnm, PATH_MAX);
-            pyi_remove_temp_path(fnm);
+            pyi_recursive_rmdir(fnm);
         } else {
             /* Remove only directory link */
             _wrmdir(wfnm);
@@ -494,10 +456,9 @@ remove_one(wchar_t *wfnm, size_t pos, struct _wfinddata_t wfinfo)
     }
 }
 
-/* TODO Find easier and more portable implementation of removing directory recursively. */
-/*     e.g. */
+/* TODO: find easier and more portable implementation of removing directory recursively. */
 void
-pyi_remove_temp_path(const char *dir)
+pyi_recursive_rmdir(const char *dir)
 {
     wchar_t wfnm[PATH_MAX + 1];
     wchar_t wdir[PATH_MAX + 1];
@@ -535,7 +496,7 @@ remove_one(char *pnm, int pos, const char *fnm)
     if (strcmp(fnm, ".") == 0  || strcmp(fnm, "..") == 0) {
         return;
     }
-    pnm[pos] = PYI_NULLCHAR;
+    pnm[pos] = 0;
     strcat(pnm, fnm);
 
     /* Use lstat() instead of stat() to prevent recursion into
@@ -543,7 +504,7 @@ remove_one(char *pnm, int pos, const char *fnm)
     if (lstat(pnm, &sbuf) == 0) {
         if (S_ISDIR(sbuf.st_mode) ) {
             /* Use recursion to remove subdirectories. */
-            pyi_remove_temp_path(pnm);
+            pyi_recursive_rmdir(pnm);
         }
         else {
             unlink(pnm);
@@ -552,7 +513,7 @@ remove_one(char *pnm, int pos, const char *fnm)
 }
 
 void
-pyi_remove_temp_path(const char *dir)
+pyi_recursive_rmdir(const char *dir)
 {
     char fnm[PATH_MAX + 1];
     DIR *ds;
@@ -582,29 +543,47 @@ pyi_remove_temp_path(const char *dir)
 }
 #endif /* ifdef _WIN32 */
 
-/*
- * helper for extract2fs
- * which may try multiple places
- */
-/* TODO find better name for function. */
-FILE *
-pyi_open_target(const char *path, const char* name_)
-{
 
-#ifdef _WIN32
-    wchar_t wchar_buffer[PATH_MAX];
-    struct _stat sbuf;
-#else
-    struct stat sbuf;
-#endif
+static int
+_check_strict_unpack_mode ()
+{
+    static int enabled = -1;
+    if (enabled == -1) {
+        char *env_strict = pyi_getenv("PYINSTALLER_STRICT_UNPACK_MODE"); /* strdup'd copy or NULL */
+        if (env_strict) {
+            if (strcmp(env_strict, "0") == 0) {
+                enabled = 0;
+            } else {
+                enabled = 1;
+            }
+            free(env_strict);
+        } else {
+            enabled = 0;
+        }
+    }
+    return enabled;
+}
+
+/*
+ * Helper that creates parent path for the given filename. The filename
+ * is given as a path prefix (which already exists) and name (which
+ * could be either just a basename or a path relative to the already
+ * existing prefix).
+ *
+ * Returns 0 on success, -1 on failure.
+ */
+int
+pyi_create_parent_directory(const char *path, const char *name_)
+{
     char fnm[PATH_MAX];
     char name[PATH_MAX];
     char *dir;
     size_t len;
 
+    /* Ensure given components do not exist PATH_MAX */
     if (snprintf(fnm, PATH_MAX, "%s", path) >= PATH_MAX ||
         snprintf(name, PATH_MAX, "%s", name_) >= PATH_MAX) {
-        return NULL;
+        return -1;
     }
 
     len = strlen(fnm);
@@ -614,7 +593,7 @@ pyi_open_target(const char *path, const char* name_)
         len += strlen(dir) + strlen(PYI_SEPSTR);
         /* Check if fnm does not exceed the buffer size */
         if (len >= PATH_MAX-1) {
-            return NULL;
+            return -1;
         }
         strcat(fnm, PYI_SEPSTR);
         strcat(fnm, dir);
@@ -624,36 +603,49 @@ pyi_open_target(const char *path, const char* name_)
             break;
         }
 
-#ifdef _WIN32
-        pyi_win32_utils_from_utf8(wchar_buffer, fnm, PATH_MAX);
-
-        if (_wstat(wchar_buffer, &sbuf) < 0) {
-            pyi_win32_mkdir(wchar_buffer);
+        if (pyi_path_exists(fnm) == 0) {
+            if (pyi_path_mkdir(fnm) < 0) {
+                return -1;
+            }
         }
-#else
+    }
 
-        if (stat(fnm, &sbuf) < 0) {
-            mkdir(fnm, 0700);
+    return 0;
+}
+
+/*
+ * Helper for extract2fs that attempts to open the given filename in
+ * (existing) prefix path, after ensuring that all its parent
+ * directories exist.
+ *
+ * Returns opened FILE handle on success, NULL on failure.
+ */
+FILE *
+pyi_open_target_file(const char *path, const char* name_)
+{
+    char fnm[PATH_MAX];
+
+    /* Merge prefix and name into full path */
+    if (snprintf(fnm, PATH_MAX, "%s%c%s", path, PYI_SEP, name_) >= PATH_MAX) {
+        return NULL;
+    }
+
+    /* Check if file already exists (it should not) */
+    if (pyi_path_exists(fnm) == 1) {
+        if (_check_strict_unpack_mode()) {
+            OTHERERROR("ERROR: file already exists but should not: %s\n", fnm);
+            return NULL;
+        } else {
+            OTHERERROR("WARNING: file already exists but should not: %s\n", fnm);
         }
-#endif
     }
 
-#ifdef _WIN32
-    pyi_win32_utils_from_utf8(wchar_buffer, fnm, PATH_MAX);
-
-    if (_wstat(wchar_buffer, &sbuf) == 0) {
-        OTHERERROR("WARNING: file already exists but should not: %s\n", fnm);
+    /* Create parent directories, if necessary */
+    if (pyi_create_parent_directory(path, name_) < 0) {
+        return NULL;
     }
-#else
 
-    if (stat(fnm, &sbuf) == 0) {
-        OTHERERROR("WARNING: file already exists but should not: %s\n", fnm);
-    }
-#endif
-    /*
-     * pyi_path_fopen() wraps different fopen names. On Windows it uses
-     * wide-character version of fopen.
-     */
+    /* Open the file */
     return pyi_path_fopen(fnm, "wb");
 }
 
@@ -662,7 +654,7 @@ int
 pyi_copy_file(const char *src, const char *dst, const char *filename)
 {
     FILE *in = pyi_path_fopen(src, "rb");
-    FILE *out = pyi_open_target(dst, filename);
+    FILE *out = pyi_open_target_file(dst, filename);
     char buf[4096];
     size_t read_count = 0;
     int error = 0;
@@ -760,15 +752,14 @@ pyi_utils_dlclose(dylib_t dll)
 
 #ifdef _WIN32
 
-int
-pyi_utils_set_environment(const ARCHIVE_STATUS *status)
-{
-    return 0;
-}
-
 static BOOL WINAPI
 _pyi_win32_console_ctrl(DWORD dwCtrlType)
 {
+    /* Due to different handling of VS() macro in MSVC and mingw gcc, the former requires the name variable
+     * below to be available even in non-debug builds (where VS() is no-op), while the latter complains about
+     * the unused variable. So put everything under ifdef guard to appease both.
+     */
+#if defined(LAUNCH_DEBUG)
     /* https://docs.microsoft.com/en-us/windows/console/handlerroutine */
     static const char *name_map[] = {
         "CTRL_C_EVENT", // 0
@@ -787,6 +778,7 @@ _pyi_win32_console_ctrl(DWORD dwCtrlType)
      * See Remarks section at: https://docs.microsoft.com/en-us/windows/console/setconsolectrlhandler
      */
     VS("LOADER: received console control signal %d (%s)!\n", dwCtrlType, name ? name : "unknown");
+#endif
 
     /* Handle Ctrl+C and Ctrl+Break signals immediately. By returning TRUE, their default handlers
      * (which would call ExitProcess()) are not called, so we are effectively suppressing the signal
@@ -808,6 +800,24 @@ _pyi_win32_console_ctrl(DWORD dwCtrlType)
      */
     Sleep(20000);
     return TRUE;
+}
+
+static HANDLE
+_pyi_get_stream_handle(FILE *stream)
+{
+    HANDLE handle = (void *)_get_osfhandle(fileno(stream));
+    /* When stdin, stdout, and stderr are not associated with a stream (e.g., Windows application
+     * without console), _fileno() returns special value -2. Therefore, call to _get_osfhandle()
+     * returns INVALID_HANDLE_VALUE. If we caled _get_osfhandle() with 0, 1, or 2 instead of the
+     * result of _fileno(), _get_osfhandle() would also return -2 when the file descriptor is
+     * not associated with the stream. But because we take the _fileno() route, we need to handle
+     * only INVALID_HANDLE_VALUE (= -1).
+     * See: https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/get-osfhandle
+     */
+    if (handle == INVALID_HANDLE_VALUE) {
+        return NULL;
+    }
+    return handle;
 }
 
 int
@@ -839,9 +849,9 @@ pyi_utils_create_child(const char *thisfile, const ARCHIVE_STATUS* status,
     si.lpTitle = NULL;
     si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_NORMAL;
-    si.hStdInput = (void*)_get_osfhandle(fileno(stdin));
-    si.hStdOutput = (void*)_get_osfhandle(fileno(stdout));
-    si.hStdError = (void*)_get_osfhandle(fileno(stderr));
+    si.hStdInput = _pyi_get_stream_handle(stdin);
+    si.hStdOutput = _pyi_get_stream_handle(stdout);
+    si.hStdError = _pyi_get_stream_handle(stderr);
 
     VS("LOADER: Creating child process\n");
 
@@ -870,22 +880,24 @@ pyi_utils_create_child(const char *thisfile, const ARCHIVE_STATUS* status,
 
 #else /* ifdef _WIN32 */
 
-static int
-set_dynamic_library_path(const char* path)
+#if !defined(__APPLE__)
+
+int
+pyi_utils_set_library_search_path(const char *path)
 {
     int rc = 0;
     char *env_var, *env_var_orig;
     char *new_path, *orig_path;
 
-    #ifdef AIX
+#ifdef AIX
     /* LIBPATH is used to look up dynamic libraries on AIX. */
     env_var = "LIBPATH";
     env_var_orig = "LIBPATH_ORIG";
-    #else
+#else
     /* LD_LIBRARY_PATH is used on other *nix platforms (except Darwin). */
     env_var = "LD_LIBRARY_PATH";
     env_var_orig = "LD_LIBRARY_PATH_ORIG";
-    #endif /* AIX */
+#endif /* AIX */
 
     /* keep original value in a new env var so the application can restore it
      * before forking subprocesses. This is important so that e.g. a forked
@@ -906,51 +918,7 @@ set_dynamic_library_path(const char* path)
     return rc;
 }
 
-int
-pyi_utils_set_environment(const ARCHIVE_STATUS *status)
-{
-    int rc = 0;
-
-    #ifdef __APPLE__
-    /* On Mac OS X we do not use environment variables DYLD_LIBRARY_PATH
-     * or others to tell OS where to look for dynamic libraries.
-     * There were some issues with this approach. In some cases some
-     * system libraries were trying to load incompatible libraries from
-     * the dist directory. For instance this was experienced with macprots
-     * and PyQt applications.
-     *
-     * To tell the OS where to look for dynamic libraries we modify
-     * .so/.dylib files to use relative paths to other dependent
-     * libraries starting with @executable_path.
-     *
-     * For more information see:
-     * http://blogs.oracle.com/dipol/entry/dynamic_libraries_rpath_and_mac
-     * http://developer.apple.com/library/mac/#documentation/DeveloperTools/  \
-     *     Conceptual/DynamicLibraries/100-Articles/DynamicLibraryUsageGuidelines.html
-     */
-    /* For environment variable details see 'man dyld'. */
-    pyi_unsetenv("DYLD_FRAMEWORK_PATH");
-    pyi_unsetenv("DYLD_FALLBACK_FRAMEWORK_PATH");
-    pyi_unsetenv("DYLD_VERSIONED_FRAMEWORK_PATH");
-    pyi_unsetenv("DYLD_LIBRARY_PATH");
-    pyi_unsetenv("DYLD_FALLBACK_LIBRARY_PATH");
-    pyi_unsetenv("DYLD_VERSIONED_LIBRARY_PATH");
-    pyi_unsetenv("DYLD_ROOT_PATH");
-
-    #else
-
-    /* Set library path to temppath. This is only for onefile mode.*/
-    if (status->temppath[0] != PYI_NULLCHAR) {
-        rc = set_dynamic_library_path(status->temppath);
-    }
-    /* Set library path to homepath. This is for default onedir mode.*/
-    else {
-        rc = set_dynamic_library_path(status->homepath);
-    }
-    #endif /* ifdef __APPLE__ */
-
-    return rc;
-}
+#endif /* !defined(__APPLE__) */
 
 /*
  * If the program is activated by a systemd socket, systemd will set
@@ -966,7 +934,7 @@ pyi_utils_set_environment(const ARCHIVE_STATUS *status)
  * So the application can detect it and use the LISTEN_FDS created
  * by systemd.
  */
-int
+static int
 set_systemd_env()
 {
     const char * env_var = "LISTEN_PID";
@@ -1036,7 +1004,6 @@ pyi_utils_create_child(const char *thisfile, const ARCHIVE_STATUS* status,
 {
     pid_t pid = 0;
     int rc = 0;
-    int i;
 
     /* cause nonzero return unless this is overwritten
      * with a successful return code from wait() */
