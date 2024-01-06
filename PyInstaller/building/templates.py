@@ -101,6 +101,7 @@ bundleexetmplt = """app = BUNDLE(
     name='%(name)s.app',
     icon=%(icon)s,
     bundle_identifier=%(bundle_identifier)s,
+    info_plist=%(info_plist)r),
 )
 """
 
@@ -109,6 +110,7 @@ bundletmplt = """app = BUNDLE(
     name='%(name)s.app',
     icon=%(icon)s,
     bundle_identifier=%(bundle_identifier)s,
+    info_plist=%(info_plist)r,
 )
 """
 
